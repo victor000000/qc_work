@@ -26,7 +26,9 @@ pub(super) async fn resolve_project_ids(db: &Db, name: &str, shared: &[i64]) -> 
         }
     }
     if pids.is_empty() {
-        tracing::warn!("{name}: no project IDs (strategy disabled, db kept for credentials)");
+        tracing::warn!(
+            "{name}: no project IDs (strategy disabled, database retained for strategy settings)"
+        );
     }
     Ok(pids)
 }

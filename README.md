@@ -87,8 +87,9 @@ strategies. Do not use manually maintained development projects as compute-pool 
 One server may own a data directory at a time; independent data directories may run separately.
 
 Credentials can be supplied through `QC_USER_ID`, `QC_API_TOKEN`, and `QC_ORGANIZATION_ID`,
-or stored in the `settings` table of the first discovered strategy DB:
-`credentials/qc_user_id`, `credentials/qc_api_token`, and `project/organization_id`.
+or through a mode-0600 private JSON file selected by `QC_CREDENTIALS_FILE`.
+Database authentication storage is unsupported. See [credential setup](docs/CREDENTIALS.md).
+Organization ID may remain in `project/organization_id`.
 Keep runtime databases and credential files private. Never copy a production DB into source control.
 
 ## Add a strategy
@@ -142,7 +143,7 @@ cargo test --test live_server -- --ignored --nocapture # actual server, two stra
 # Add --strategies s001 to validate only one strategy.
 ```
 
-The live Rust test uses credentials from `data/S001.duckdb` (`QC_DATA_DIR` overrides the directory),
+The live Rust test uses `QC_USER_ID` and `QC_API_TOKEN` from its environment,
 creates its own project, and deletes it after success or failure. It consumes QC backtest compute.
 The read-only Python diagnostic also accepts `QC_USER_ID` and `QC_API_TOKEN` from the environment.
 

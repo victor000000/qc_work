@@ -14,12 +14,8 @@ async fn shared_server_isolates_two_strategies_and_shuts_down() -> Result<()> {
         std::path::PathBuf::from,
     );
     let source = qc::db::Db::open(&data.join("S001.duckdb"), "s001")?;
-    let user = source
-        .get_setting_required("credentials", "qc_user_id")
-        .await?;
-    let token = source
-        .get_setting_required("credentials", "qc_api_token")
-        .await?;
+    let user = std::env::var("QC_USER_ID")?;
+    let token = std::env::var("QC_API_TOKEN")?;
     let org = source
         .get_setting_required("project", "organization_id")
         .await?;
@@ -43,12 +39,7 @@ async fn shared_server_isolates_two_strategies_and_shuts_down() -> Result<()> {
         let beta = qc::db::initialize_strategy(temp.path(), "sbeta")?;
         let late = qc::db::initialize_strategy(temp.path(), "slate")?;
         let conn = duckdb::Connection::open(&alpha)?;
-        for (category, key, value) in [
-            ("credentials", "qc_user_id", &user), ("credentials", "qc_api_token", &token),
-            ("project", "organization_id", &org),
-        ] {
-            conn.execute("INSERT OR REPLACE INTO settings(category,key,value) VALUES (?1,?2,?3)", [category,key,value])?;
-        }
+        conn.execute("INSERT OR REPLACE INTO settings(category,key,value) VALUES ('project','organization_id',?1)", [&org])?;
         std::fs::write(temp.path().join("projects.json"), serde_json::to_vec(&serde_json::json!({"projects": [pid]}))?)?;
         let common = "from AlgorithmImports import *\nclass Smoke(QCAlgorithm):\n def initialize(self):\n  self.set_start_date(2024,1,2)\n  self.set_end_date(2024,1,5)\n  self.set_cash(100000)\n  self.add_equity('SPY',Resolution.DAILY)\n";
         let alpha_code = format!("import qc_work_isolation_probe_58f2c\n{common}  assert qc_work_isolation_probe_58f2c.VALUE == 42\n def on_data(self,data):\n  if not self.portfolio.invested: self.set_holdings('SPY',0.1)\n");
@@ -56,7 +47,7 @@ async fn shared_server_isolates_two_strategies_and_shuts_down() -> Result<()> {
         drop(conn);
         child = Some(Command::new(env!("CARGO_BIN_EXE_qc-backtest-server"))
             .arg("--data-dir").arg(temp.path()).arg("serve")
-            .env_remove("QC_DATA_DIR").env_remove("QC_USER_ID").env_remove("QC_API_TOKEN").env_remove("QC_ORGANIZATION_ID")
+            .env_remove("QC_DATA_DIR").env("QC_USER_ID", &user).env("QC_API_TOKEN", &token).env_remove("QC_ORGANIZATION_ID")
             .stdout(Stdio::null()).stderr(Stdio::from(std::fs::File::create(temp.path().join("server.stderr"))?)).spawn()?);
         wait_done(&alpha, child.as_mut().unwrap()).await?;
         println!("strategy alpha: done with uploaded qc_work_isolation_probe_58f2c.py");

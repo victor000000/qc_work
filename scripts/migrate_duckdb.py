@@ -92,6 +92,14 @@ def migrate(source, audit_root):
                 definitions.append('FOREIGN KEY ('+','.join(identifier(k[0]) for k in keys)+') REFERENCES '+identifier(parent)+' ('+','.join(identifier(k[1]) for k in keys)+')')
             con.execute('CREATE TABLE '+identifier(table)+' ('+','.join(definitions)+')')
             rows=old.execute('SELECT * FROM '+identifier(table)).fetchall()
+            if table == 'settings':
+                names = [column[1] for column in columns]
+                if {'category', 'key'} <= set(names):
+                    cat_index, key_index = names.index('category'), names.index('key')
+                    rows = [row for row in rows if row[cat_index] != 'credentials'
+                            and not any(term in str(row[key_index]).lower()
+                                        for term in ('secret', 'password', 'token', 'api_key', 'oauth'))]
+
             # Arrow imports bulk data with explicit target types; avoid per-row commits.
             if rows:
                 import pyarrow as pa

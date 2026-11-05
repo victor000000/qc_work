@@ -12,7 +12,7 @@ Two jobs, both safe to re-run:
   2. Stand up data/SML01.duckdb as a first-class strategy DB the server auto-discovers
      (filename SML01.duckdb matches the S*.duckdb glob -> strategy 'sml01'). It gets the
      4 core tables (backtest_queue WITH extra_files, experiments, code_blobs,
-     settings) using the generic DuckDB schema.duckdb's schema, plus credentials/org copied from
+     settings) using the generic DuckDB schema.duckdb's schema, plus organization ID copied from
      S002 (so sml01 is self-contained, not dependent on dbs[0] ordering) and a
      scheduler_weight. No cloud_project_id is set -> sml01 inherits the 8 shared
      QC projects from data/projects.json, exactly like s001/s002.
@@ -81,15 +81,13 @@ def standup_sml01():
     """Create data/SML01.duckdb with the 4 core tables + settings, using the generic DuckDB schema."""
     src = connect(S002, read_only=True)
     creds = {
-        ("credentials", "qc_api_token"): get_setting(src, "credentials", "qc_api_token"),
-        ("credentials", "qc_user_id"): get_setting(src, "credentials", "qc_user_id"),
         ("project", "organization_id"): get_setting(src, "project", "organization_id"),
     }
     src.close()
 
     missing = [k for k, v in creds.items() if not v]
     if missing:
-        print(f"  ERROR: missing creds in S002.duckdb: {missing}", file=sys.stderr)
+        print(f"  ERROR: missing organization settings in S002.duckdb: {missing}", file=sys.stderr)
         sys.exit(1)
 
     db = connect(SML01)
@@ -107,11 +105,9 @@ def standup_sml01():
         else:
             print("  SML01.duckdb: extra_files present ✓")
 
-        # Settings: creds/org (copied) + strategy identity. INSERT OR REPLACE is
+        # Settings: organization ID (copied) + strategy identity. INSERT OR REPLACE is
         # idempotent on the (category,key) primary key.
         rows = [
-            ("credentials", "qc_api_token", creds[("credentials", "qc_api_token")]),
-            ("credentials", "qc_user_id", creds[("credentials", "qc_user_id")]),
             ("project", "organization_id", creds[("project", "organization_id")]),
             ("strategy", "name", "sml01"),
             ("strategy", "db_path", "SML01.duckdb"),
@@ -126,7 +122,7 @@ def standup_sml01():
             "INSERT OR REPLACE INTO settings(category,key,value) VALUES(?,?,?)", rows
         )
         db.commit()
-        print(f"  SML01.duckdb: settings written ({len(rows)} rows; creds redacted)")
+        print(f"  SML01.duckdb: settings written ({len(rows)} rows; no credentials)")
     finally:
         db.close()
 
@@ -147,8 +143,7 @@ def verify():
                 print(f"    tables: {tabs}")
                 got = {f"{cat}/{key}" for cat, key in c.execute(
                     "SELECT category,key FROM settings")}
-                need = {"credentials/qc_api_token", "credentials/qc_user_id",
-                        "project/organization_id", "strategy/name",
+                need = {"project/organization_id", "strategy/name",
                         "strategy/scheduler_weight"}
                 print(f"    settings present: {sorted(need & got)}")
                 print(f"    settings missing: {sorted(need - got)}")

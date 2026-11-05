@@ -54,12 +54,25 @@ impl ServerConfig {
             dbs.push(db);
         }
 
-        let cred_db = &dbs[0];
-        let qc_user_id = credential(cred_db, "QC_USER_ID", "credentials", "qc_user_id").await?;
-        let qc_api_token =
-            credential(cred_db, "QC_API_TOKEN", "credentials", "qc_api_token").await?;
-        let organization_id =
-            credential(cred_db, "QC_ORGANIZATION_ID", "project", "organization_id").await?;
+        let credential_path = std::env::var_os("QC_CREDENTIALS_FILE").map_or_else(
+            || {
+                data_dir
+                    .parent()
+                    .unwrap_or(data_dir)
+                    .join(".local/credentials.json")
+            },
+            std::path::PathBuf::from,
+        );
+        let qc_user_id = credential(&credential_path, "QC_USER_ID", "qc_user_id")?;
+        let qc_api_token = credential(&credential_path, "QC_API_TOKEN", "qc_api_token")?;
+        let organization_id = match std::env::var("QC_ORGANIZATION_ID") {
+            Ok(value) => value,
+            Err(_) => {
+                dbs[0]
+                    .get_setting_required("project", "organization_id")
+                    .await?
+            }
+        };
 
         Ok((
             Self {
@@ -74,10 +87,65 @@ impl ServerConfig {
     }
 }
 
-async fn credential(db: &Db, env: &str, category: &str, key: &str) -> Result<String> {
+fn credential(path: &Path, env: &str, key: &str) -> Result<String> {
     if let Ok(value) = std::env::var(env) {
         anyhow::ensure!(!value.trim().is_empty(), "{env} must not be empty");
         return Ok(value);
     }
-    db.get_setting_required(category, key).await
+    private_credential(path, key)
+}
+
+fn private_credential(path: &Path, key: &str) -> Result<String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        anyhow::ensure!(
+            std::fs::metadata(path)?
+                .permissions()
+                .mode()
+                .trailing_zeros()
+                >= 6,
+            "QC credential file must have mode 0600"
+        );
+    }
+    let content = std::fs::read(path)
+        .map_err(|_| anyhow::anyhow!("Set QC credentials in environment or private file"))?;
+    let values: serde_json::Value = serde_json::from_slice(&content)
+        .map_err(|_| anyhow::anyhow!("Invalid QC credential JSON"))?;
+    let value = values
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    anyhow::ensure!(!value.trim().is_empty(), "Missing private credential {key}");
+    Ok(value.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn private_file_required_and_errors_do_not_echo_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("credentials.json");
+        assert!(private_credential(&path, "qc_api_token").is_err());
+        std::fs::write(&path, r#"{"qc_api_token":"test-only-token"}"#).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(private_credential(&path, "qc_api_token").is_err());
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        assert_eq!(
+            private_credential(&path, "qc_api_token").unwrap(),
+            "test-only-token"
+        );
+        std::fs::write(&path, "sensitive malformed content").unwrap();
+        assert!(
+            !private_credential(&path, "qc_api_token")
+                .unwrap_err()
+                .to_string()
+                .contains("sensitive")
+        );
+    }
 }

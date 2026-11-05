@@ -13,15 +13,22 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def credentials(db):
-    user, token = os.getenv('QC_USER_ID'), os.getenv('QC_API_TOKEN')
-    if user and token:
-        return user, token
-    with storage.connect(f'file:{db}?mode=ro', uri=True) as conn:
-        values = dict(conn.execute(
-            "SELECT key,value FROM settings WHERE category='credentials' "
-            "AND key IN ('qc_user_id','qc_api_token')"))
-    return values['qc_user_id'], values['qc_api_token']
+def credentials(db=None):
+    """Read environment/private JSON only; db is a compatibility path hint."""
+    path = Path(os.environ.get('QC_CREDENTIALS_FILE', ROOT / '.local/credentials.json'))
+    values = {}
+    if not (os.getenv('QC_USER_ID') and os.getenv('QC_API_TOKEN')) and path.exists():
+        if path.stat().st_mode & 0o077:
+            raise RuntimeError('QC credential file must have mode 0600')
+        try:
+            values = json.loads(path.read_text())
+        except (ValueError, OSError):
+            raise RuntimeError('Cannot read QC credential file') from None
+    user = os.getenv('QC_USER_ID', values.get('qc_user_id', ''))
+    token = os.getenv('QC_API_TOKEN', values.get('qc_api_token', ''))
+    if not user.strip() or not token.strip():
+        raise RuntimeError('Set QC_USER_ID/QC_API_TOKEN or QC_CREDENTIALS_FILE; database credentials are unsupported')
+    return user, token
 
 
 def request(user, token, path, body=None, method=None):

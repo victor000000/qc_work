@@ -116,7 +116,7 @@ def main():
             subprocess.run([str(binary),'--data-dir',folder,'init-strategy','--strategy',strategy], check=True, capture_output=True)
         with storage.connect(data / 'S001.duckdb') as conn:
             conn.executemany('INSERT OR REPLACE INTO settings(category,key,value) VALUES (?,?,?)',
-                [('credentials','qc_user_id',user),('credentials','qc_api_token',token),('project','organization_id',org)])
+                [('project','organization_id',org)])
         created = request(user,token,'/projects/create',{'name':f'qc-work-smoke-{nonce}','language':'Py','organizationId':org})['projects'][0]
         pid = created['projectId']
         record = ROOT / f'.local/verification/pending-cloud/{pid}.json'
@@ -131,6 +131,7 @@ def main():
             child_env = dict(os.environ)
             for key in ['QC_DATA_DIR','QC_USER_ID','QC_API_TOKEN','QC_ORGANIZATION_ID']:
                 child_env.pop(key,None)
+            child_env.update(QC_USER_ID=user, QC_API_TOKEN=token, QC_ORGANIZATION_ID=org)
             with (artifacts / 'server.log').open('w') as log:
                 server = subprocess.Popen([str(binary),'--data-dir',folder,'serve'],env=child_env,stdout=log,stderr=subprocess.STDOUT)
                 for strategy,name,code,extras in specs:

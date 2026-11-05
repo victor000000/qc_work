@@ -30,6 +30,7 @@ INSERT INTO settings VALUES('credentials','token','private-example');''')
     assert record['indexes']==['idx_child_parent']
     assert not (audit/'SAMPLE_parquet/settings.parquet').exists()
     with duckdb.connect(str(source.with_suffix('.duckdb'))) as c:
+        assert c.execute('SELECT count(*) FROM settings').fetchone() == (0,)
         assert c.execute('SELECT * FROM parent').fetchone()==(5,'kept',.123456789012345,b'\x00\xff',None)
         assert c.execute("INSERT INTO parent(name) VALUES('new') RETURNING id").fetchone()==(100,)
     assert hashlib.sha256(source.read_bytes()).hexdigest()==before

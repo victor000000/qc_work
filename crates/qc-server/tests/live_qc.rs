@@ -16,10 +16,8 @@ async fn real_qc_compile_backtest_collect_and_cleanup() -> Result<()> {
         std::path::PathBuf::from,
     );
     let db = qc::db::Db::open(&data_dir.join("S001.duckdb"), "s001")?;
-    let user = db.get_setting_required("credentials", "qc_user_id").await?;
-    let token = db
-        .get_setting_required("credentials", "qc_api_token")
-        .await?;
+    let user = std::env::var("QC_USER_ID")?;
+    let token = std::env::var("QC_API_TOKEN")?;
     let org = db
         .get_setting_required("project", "organization_id")
         .await?;

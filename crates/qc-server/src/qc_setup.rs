@@ -13,7 +13,7 @@ use anyhow::Result;
 use crate::client::QcClient;
 use crate::config::ServerConfig;
 
-/// Build a QC client from `data_dir`'s strategy DBs (credentials live in
+/// Build a QC client from `data_dir`'s strategy DBs (strategy settings live in
 /// the `settings` table of the first DB found).
 ///
 /// # Errors

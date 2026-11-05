@@ -1,0 +1,9 @@
+# Private credentials
+
+QC authentication is loaded from `QC_USER_ID` and `QC_API_TOKEN`, or the JSON file selected by `QC_CREDENTIALS_FILE`. The default is `.local/credentials.json` beside the data directory's parent. The file contains `qc_user_id` and `qc_api_token`; restrict it to mode 0600 and its directory to 0700. Environment values take precedence. Missing, blank, malformed, or publicly readable file credentials fail closed. Credentials are never loaded from strategy databases. Organization IDs and strategy settings remain ordinary database configuration.
+
+The Python API helper retains its historical database-path argument for caller compatibility, but never opens that database for authentication. Live test and validation subprocesses receive credentials through their environment. The SML01 schema migration no longer copies authentication settings.
+
+On 2026-11-05 the operational workspace audit inspected 13 databases in `data/`. Twenty credential rows were backed up privately and removed from six databases (the SQLite and DuckDB versions of S001, S002 and SML01). All non-settings table row counts were preserved. SQLite files were vacuumed and WALs truncated; DuckDB files were checkpointed. This is logical credential removal, not a claim of forensic erasure from historical disk snapshots or backups. The credential-only Drive backup is owner-private; no source or ordinary configuration was uploaded. Local migration evidence is retained outside Git in `.local/credential-backup-20261105/`.
+
+Never restore the old credentials category into a database. Restore individual needed values into the private JSON file or environment. Rebuild the Rust server after updating source; old binaries retain their old loading behavior. No services are automatically restarted by this migration.

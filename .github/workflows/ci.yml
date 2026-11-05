@@ -46,7 +46,7 @@ jobs:
         run: python -m pytest strategies/sstrangle/poc/v088 strategies/sstrangle/poc/v089 strategies/sstrangle/poc/v090 strategies/sstrangle/research/design_20261030_v090
       - name: Run isolated strategy tests
         working-directory: strategies/${{ matrix.strategy }}
-        run: python -m pytest
+        run: python -m pytest tests
 
   workspace-tools:
     name: Workspace tool regression tests
