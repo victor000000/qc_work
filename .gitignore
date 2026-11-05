@@ -1,0 +1,52 @@
+target/
+*.log
+logs/
+*.log.*
+qc-server.pid
+data/s001/*.pre_bake_*
+data/s002/*.pre_*
+__pycache__/
+*.pyc
+
+/qc-backtest-server
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+
+# Local environments and secrets
+.venv/
+**/.creds.json
+.env
+.env.*
+!.env.example
+._*
+.DS_Store
+
+.local/
+*.egg-info/
+.pytest_cache/
+**/.venv*/
+
+# Local LEAN credentials and downloaded runtime data
+**/lean.json
+**/.QuantConnect/
+workspaces/lean/data/
+workspaces/lean/**/backtests/
+
+# Database snapshots and backups may contain private account settings
+*.db*
+*.sqlite*
+*.duckdb*
+data/parquet/
+
+# Publication boundaries
+data/
+**/results/
+**/backtests/
+**/.creds.json
+**/lean.json
+*.pem
+*.key

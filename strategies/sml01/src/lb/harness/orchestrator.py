@@ -1,0 +1,307 @@
+"""Loop orchestrator: two-phase train→infer with REAL Calmar from QC backtest."""
+
+import os, sys, time, json, ast, inspect
+
+
+def _minify(src):
+    """Strip comments + docstrings so the rendered script fits QC's 64,000-char
+    main.py limit. Semantics-preserving (AST round-trip); validated by compile."""
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module)):
+            b = node.body
+            if (b and isinstance(b[0], ast.Expr)
+                    and isinstance(getattr(b[0], "value", None), ast.Constant)
+                    and isinstance(b[0].value.value, str)):
+                node.body = b[1:] or [ast.Pass()]
+    out = ast.unparse(tree)
+    compile(out, "<minified>", "exec")
+    return out
+
+from .constants import (CORE_7_ETFS, TEMPLATES_DIR, MODULES_DIR, QC_SCRIPTS_DIR, TARGET_BARS,
+                        KNOWLEDGE_JSON)
+from .psuf import cell_suffix
+from lb.paths import ROOT as PROJECT_ROOT
+
+
+def _load_header():
+    """Read header.py.tmpl and INJECT the canonical cell_suffix source at the
+    __PSUF_FN__ placeholder (which sits at column 0 on its own line, so the injected
+    top-level def lands correctly). The header then computes _PSUF = cell_suffix(CONFIG),
+    guaranteeing the QC-side suffix is byte-identical to the driver's _cell_key (invariant
+    I5). Injection happens BEFORE minification; the def's docstring is stripped by _minify.
+    inspect.getsource returns the def at column 0, matching the placeholder's indentation."""
+    with open(os.path.join(TEMPLATES_DIR, "header.py.tmpl")) as f:
+        header = f.read()
+    return header.replace("__PSUF_FN__", inspect.getsource(cell_suffix))
+
+
+def read_module(name):
+    path = os.path.join(MODULES_DIR, name)
+    if not os.path.exists(path): raise FileNotFoundError(f"Module not found: {path}")
+    with open(path) as f: return f.read()
+
+
+def _prune_labelers(src, keep):
+    """Keep only the ONE labeler a hypothesis uses (+ compute_forward_metrics + its
+    transitive top-level helpers), shrinking labeler.py from ~10 labelers to 1 so the
+    rendered script stays under QC's 64,000-char limit. Falls back to the full source
+    on any error. Hypothesis mode uses LABELERS[keep] only, so this is semantics-safe."""
+    try:
+        tree = ast.parse(src)
+        funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+        keeps = keep.split("+") if "+" in keep else [keep]    # "+"-joined = ENSEMBLE (⑦)
+        keepfns = [f"generate_labels_{k}" for k in keeps if f"generate_labels_{k}" in funcs]
+        if not keepfns:
+            return src
+        # transitive closure of top-level funcs reachable from the kept labelers + compute_forward_metrics
+        need, stack = set(), list(keepfns) + ["compute_forward_metrics"]
+        while stack:
+            fn = stack.pop()
+            if fn in need or fn not in funcs:
+                continue
+            need.add(fn)
+            for sub in ast.walk(funcs[fn]):
+                if isinstance(sub, ast.Name) and sub.id in funcs and sub.id not in need:
+                    stack.append(sub.id)
+        minimal_labelers = "{" + ", ".join(f'"{k}": generate_labels_{k}' for k in keeps
+                                           if f"generate_labels_{k}" in funcs) + "}"
+        new_body = []
+        for n in tree.body:
+            if isinstance(n, (ast.Import, ast.ImportFrom)):
+                new_body.append(n)
+            elif isinstance(n, ast.FunctionDef):
+                if n.name in need:
+                    new_body.append(n)
+            elif isinstance(n, ast.Assign):
+                tgts = [t.id for t in n.targets if isinstance(t, ast.Name)]
+                if "LABELERS" in tgts:
+                    new_body.append(ast.parse(f'LABELERS = {minimal_labelers}').body[0])
+                elif "FEATURED_LABELERS" in tgts or "BASELINE_LABELERS" in tgts:
+                    continue
+                else:
+                    new_body.append(n)
+            else:
+                new_body.append(n)
+        tree.body = new_body
+        out = ast.unparse(tree)
+        compile(out, "<pruned-labelers>", "exec")
+        return out
+    except Exception:
+        return src
+
+
+def render_script(ticker, axis=None):
+    """Render ONE QC train script = header + modules (in order) + footer.
+
+    The rendered modules are bar_builder.py, labeler.py, features.py, trainer.py
+    (calibrator/consensus/ensembler stay out — the footer's FIXED downstream only
+    needs reduce_dims/realistic_cstats from trainer.py). All share ONE global
+    namespace, so modules must not import siblings.
+
+    axis: if given, substitute the AXIS placeholder so the train run sweeps just
+    that one axis; if None, the literal '__AXIS__' remains and the footer sweeps
+    ALL axes.
+    """
+    footer_path = os.path.join(TEMPLATES_DIR, "footer.py.tmpl")
+    script = _load_header()
+    for mod in ["bar_builder.py", "labeler.py", "features.py", "trainer.py"]:
+        script += f"\n# === {mod} ===\n" + read_module(mod) + "\n"
+    with open(footer_path) as f: script += f.read()
+    script = script.replace("__TICKER__", ticker)
+    if axis is not None:
+        script = script.replace("__AXIS__", axis)
+    return _minify(script)
+
+
+def render_train_config(config):
+    """Render ONE single-config TRAIN script for a hypothesis CONFIG.
+
+    CONFIG = {"ticker","axis","labeler","thresh","sizing"} is injected at RENDER
+    TIME by substituting the header's five placeholders (__TICKER__, __AXIS__,
+    __LABELER__, __THRESH__, __SIZING__) — NO code edits between hypotheses. With
+    axis+labeler both substituted the footer enters HYPOTHESIS MODE: it builds ONLY
+    CONFIG['axis'] and runs ONLY CONFIG['labeler'] as ONE cell, sizing on VAL via
+    _size(CONFIG['sizing'], CONFIG['thresh']) and SAVING that sizing+thresh into the
+    cell payload so infer (OOS) replays the identical rule.
+
+    The cell written is autoresearch/{ticker}/cell_{axis}_{labeler}.json; pass that
+    same '{axis}_{labeler}' to render_infer_cell as the CELL key.
+
+    MULTI-FILE (2026-06-03): bar_builder.py is NOT concatenated into main.py — it is a
+    SEPARATE QC project file that main.py imports. QC's 64,000-char limit is PER FILE, so
+    splitting the largest module off keeps main.py well under the cap and unblocks big
+    labeler ENSEMBLES (bgm+ker etc.) that previously overflowed. bar_builder's only external
+    dependency is TRAIN_END, which main injects after importing it (bar_builder.TRAIN_END=...).
+    Bars are byte-identical to the old concatenated build (same source, just imported), and
+    infer/verify renders still concatenate bar_builder (they're small) so the leak-safe online
+    replay path is untouched. Returns (main_code, {"bar_builder.py": bar_builder_code}).
+    """
+    footer_path = os.path.join(TEMPLATES_DIR, "footer.py.tmpl")
+    script = _load_header()
+    # bar_builder is a SEPARATE file: import it + inject TRAIN_END (defined above in the
+    # header) into its module namespace, then pull the names the footer uses into scope.
+    script += ("\nimport bar_builder as _bbmod\n_bbmod.TRAIN_END = TRAIN_END\n"
+               "from bar_builder import AXES, BUILDER_CLASSES, build_bars, "
+               "builder_threshold, _make_builder\n")
+    for mod in ["labeler.py", "features.py", "trainer.py"]:
+        body = read_module(mod)
+        if mod == "labeler.py" and config.get("labeler"):
+            body = _prune_labelers(body, str(config["labeler"]))   # keep only the 1 used labeler (size)
+        script += f"\n# === {mod} ===\n" + body + "\n"
+    with open(footer_path) as f: script += f.read()
+    script = (script
+              .replace("__TICKER__", str(config["ticker"]))
+              .replace("__AXIS__", str(config["axis"]))
+              .replace("__LABELER__", str(config["labeler"]))
+              .replace("__THRESH__", repr(float(config["thresh"])))
+              .replace("__SIZING__", str(config["sizing"]))\
+              .replace("__MODEL__", str(config.get("model", "xgb")))
+              .replace("__MAXDEPTH__", str(int(config.get("max_depth", 3))))
+              .replace("__PERMUTE__", "1" if config.get("permute_labels") else "0")
+              .replace("__NCOMP__", str(int(config.get("n_components", 20))))
+              .replace("__TARGETBARS__", str(int(config.get("target_bars", 15000))))   # Wang low-density clock knob (e.g. 5000)
+              .replace("__REBALBAND__", repr(float(config.get("rebal_band", 0.01))))
+              .replace("__HORIZONS__", json.dumps(config.get("horizons")))   # intraday horizons override (or null)
+              .replace("__REDUCE__", str(config.get("reduce", "correlation")))   # Wang ④ dim-reduce method (correlation|infogain)
+              .replace("__FEATURES__", str(config.get("features", "base")))   # feature set (base|rich); rich appends VR features for IG to select
+              .replace("__CALIB__", str(config.get("calibration", "isotonic"))))   # calibration: isotonic | venn_abers (deep-v2 B4)
+    # Separate bar_builder.py file: standalone (TRAIN_END default None -> injected by main).
+    bb = "TRAIN_END = None\n" + read_module("bar_builder.py")
+    # bar_ext.py / ml_ext.py / sizing_ext.py: EXTENSION modules (2026-06-10) — each its
+    # own 64k budget. sizing_ext is REQUIRED (footer imports it at exec time).
+    bx = read_module("bar_ext.py")
+    mx = read_module("ml_ext.py")
+    sx = read_module("sizing_ext.py")
+    return _minify(script), {"bar_builder.py": _minify(bb), "bar_ext.py": _minify(bx),
+                             "ml_ext.py": _minify(mx), "sizing_ext.py": _minify(sx)}
+
+
+def render_verify(ticker, axis):
+    """Render the ONLINE-BAR VERIFY backtest for one (ticker, axis): bar_builder
+    module + verify template, replaying the feed from origin and rebuilding the OOS
+    bars online from the footer-saved frozen threshold. Reads oosbars_{axis}.json
+    (saved by a prior train run on that ticker/axis)."""
+    bb = read_module("bar_builder.py")
+    with open(os.path.join(TEMPLATES_DIR, "verify.py.tmpl")) as f:
+        vt = f.read()
+    code = ("from AlgorithmImports import *\nimport json\nimport math\nimport numpy as np\nimport pandas as pd\n\n"
+            "# === bar_builder.py ===\n" + bb + "\n\n# === verify ===\n" + vt)
+    return code.replace("__TICKER__", str(ticker)).replace("__AXIS__", str(axis))
+
+
+def render_infer_online(ticker, cell):
+    """Render the FROZEN-MODEL ONLINE infer + cross-check for one cell. MULTI-FILE
+    (bar_builder.py separate, like render_live_trade / the train render) so main.py stays
+    under QC's 64k-char-per-file limit (the single-file form hit 69k -> upload reject).
+    main.py = imports + features + infer_online body, importing BUILDER_CLASSES from the
+    separate bar_builder.py. Loads the model bundle, rebuilds bars+features+model ONLINE
+    from origin, asserts p_live == p_saved. Returns (main_code, {"bar_builder.py": bb_code})."""
+    ff = read_module("features.py")
+    with open(os.path.join(TEMPLATES_DIR, "infer_online.py.tmpl")) as f:
+        it = f.read()
+    main = ("from AlgorithmImports import *\nimport json\nimport math\nimport numpy as np\n"
+            "import pandas as pd\nimport xgboost as xgb\n"
+            "import bar_builder as _bbmod\n_bbmod.TRAIN_END = None\nfrom bar_builder import BUILDER_CLASSES\n\n"
+            "# === features.py ===\n" + ff + "\n\n# === infer_online ===\n" + it)
+    main = main.replace("__TICKER__", str(ticker)).replace("__CELL__", str(cell))
+    bb = "TRAIN_END = None\n" + read_module("bar_builder.py")
+    return _minify(main), {"bar_builder.py": _minify(bb)}
+
+
+def render_live_trade(ticker, cell):
+    """Render the LIVE-DEPLOYABLE algorithm for one cell. MULTI-FILE (bar_builder.py separate, like the
+    train render) so main.py stays under QC's 64k-char-per-file limit. main.py = imports + features +
+    live_trade body, importing BUILDER_CLASSES from the separate bar_builder.py. Loads the frozen model
+    bundle, warms bars/features/rbuf from history, runs fully ONLINE (online bars->features->predict->
+    _size->set_holdings). Same code in backtest+live. Returns (main_code, {"bar_builder.py": bb_code})."""
+    ff = read_module("features.py")
+    with open(os.path.join(TEMPLATES_DIR, "live_trade.py.tmpl")) as f:
+        lt = f.read()
+    _i = lt.find('TICKER = "__TICKER__"')
+    lt_body = lt[_i:] if _i >= 0 else lt   # strip the template's standalone import header
+    main = ("from AlgorithmImports import *\nimport json\nimport math\nimport numpy as np\n"
+            "import pandas as pd\nimport xgboost as xgb\nfrom datetime import datetime, timedelta\n"
+            "import bar_builder as _bbmod\n_bbmod.TRAIN_END = None\nfrom bar_builder import BUILDER_CLASSES\n\n"
+            "# === features.py ===\n" + ff + "\n\n# === live_trade ===\n" + lt_body)
+    main = main.replace("__TICKER__", str(ticker)).replace("__CELL__", str(cell))
+    bb = "TRAIN_END = None\n" + read_module("bar_builder.py")
+    return _minify(main), {"bar_builder.py": _minify(bb)}
+
+
+def render_portfolio(champions, leverage=1.0):
+    """Render the 7-champion PORTFOLIO replay (Wang's endpoint ⑨⑩). champions =
+    [[ticker, objectstore_cell_key, weight], ...]; each is replayed via its saved
+    predictions at its own thresh+sizing, weight normalised then scaled by `leverage`
+    (gross exposure = leverage). Self-contained template."""
+    with open(os.path.join(TEMPLATES_DIR, "portfolio.py.tmpl")) as f:
+        code = f.read()
+    return code.replace("__CHAMPIONS__", json.dumps(champions)).replace("__LEVERAGE__", repr(float(leverage)))
+
+
+def render_combine(ticker, cells, mode="agree"):
+    """Render Wang's same-ticker MULTI-AXIS combination replay: combine the SAVED predictions of N
+    cells (each built on a different axis) for ONE ticker at the position layer. mode 'agree' = go
+    flat on model disagreement (his chop detector); 'net' = mean of positions. Leak-free (replay
+    only, causal per-cell rbuf). Self-contained template (no extra files)."""
+    with open(os.path.join(TEMPLATES_DIR, "combine.py.tmpl")) as f:
+        code = f.read()
+    return (code.replace("__TICKER__", str(ticker))
+                .replace("__CELLS__", json.dumps(list(cells)))
+                .replace("__MODE__", str(mode)))
+
+
+def render_spread(ticker, hedge="SPY", lev=1.0):
+    """Render the user-authorized BETA-NEUTRAL SPREAD backtest: trade w*(ticker - beta*hedge) with a
+    200-day-MA trend gate on the spread; beta fit on PRE-OOS daily history (frozen, leak-free). Self-
+    contained template (QC fetches the warm history at initialize). lev = gross multiplier (1.0/3.0)."""
+    with open(os.path.join(TEMPLATES_DIR, "spread.py.tmpl")) as f:
+        code = f.read()
+    return (code.replace("__TICKER__", str(ticker))
+                .replace("__HEDGE__", str(hedge))
+                .replace("__LEV__", repr(float(lev))))
+
+
+def render_trendcarry(ticker, carry="FXY", lev=1.0, cq=0.92, L=200, carry2="NONE", le=None):
+    """Render the carry-gated trend strategy: long `ticker` at `lev` only when ABOVE its 200-day MA AND the
+    `carry` (FXY/yen) momentum is below its TRAIN-fit `cq` quantile (yen not spiking) — dodges both QQQ's slow
+    declines and the Aug-2024 carry-unwind fast dip. Leak-free (MA causal; carry threshold fit on pre-OOS
+    history; carry used as a FEATURE, not traded). Self-contained template."""
+    with open(os.path.join(TEMPLATES_DIR, "trendcarry.py.tmpl")) as f:
+        code = f.read()
+    return (code.replace("__TICKER__", str(ticker))
+                .replace("__CARRY__", str(carry)).replace("__CARRY2__", str(carry2))
+                .replace("__LEV__", repr(float(lev)))
+                .replace("__CQ__", repr(float(cq)))
+                .replace("__L__", repr(int(L)))
+                .replace("__LE__", repr(int(le if le is not None else L))))
+
+
+def render_benchmark(tickers):
+    """Render the PASSIVE buy-and-hold equal-weight benchmark for the given ETFs (the beta
+    the strategy portfolio must beat). Self-contained template."""
+    with open(os.path.join(TEMPLATES_DIR, "benchmark.py.tmpl")) as f:
+        code = f.read()
+    return code.replace("__TICKERS__", json.dumps(list(tickers)))
+
+
+def render_infer_cell(ticker, cell):
+    """Render the INFER script bound to one cell key '{axis}_{labeler}'.
+
+    Substitutes __TICKER__/__CELL__ only; the infer template reads sizing+thresh
+    from the saved cell payload, so OOS execution matches the train/VAL leg.
+    NOT minified (infer template is already compact and well under 64k)."""
+    infer_path = os.path.join(TEMPLATES_DIR, "infer.py.tmpl")
+    with open(infer_path) as f:
+        code = f.read()
+    return code.replace("__TICKER__", str(ticker)).replace("__CELL__", str(cell))
+
+
+def load_knowledge():
+    if os.path.exists(KNOWLEDGE_JSON):
+        with open(KNOWLEDGE_JSON) as f: return json.load(f)
+    return {}
+
+
+def save_knowledge(data):
+    with open(KNOWLEDGE_JSON, 'w') as f: json.dump(data, f, indent=2, default=str)

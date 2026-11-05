@@ -1,0 +1,2 @@
+akquant==0.3.67
+curl-cffi>=0.13,<1

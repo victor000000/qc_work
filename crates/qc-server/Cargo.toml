@@ -1,0 +1,39 @@
+[package]
+name = "qc-backtest-server"
+version = "1.2.0"
+edition = "2024"
+description = "Rust runner + CLI for the QuantConnect cloud backtest API: queues strategies, manages compute nodes, collects results into per-strategy DuckDB."
+authors = ["txy"]
+publish = false
+rust-version = "1.95"
+
+[[bin]]
+name = "qc-backtest-server"
+path = "src/main.rs"
+
+[lib]
+name = "qc"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.13", features = ["json", "multipart", "query", "socks"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "chrono"] }
+tracing-appender = "0.2"
+anyhow = "1"
+duckdb = "=1.10506.1"
+sha2 = "0.11"
+hex = "0.4"
+base64 = "0.22"
+clap = { version = "4", features = ["derive", "env"] }
+dashmap = "6"
+fastrand = "2"
+futures = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
+

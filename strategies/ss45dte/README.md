@@ -1,0 +1,7 @@
+# SS45DTE: automatic research implementation
+
+The current `strategy.py` is a self-contained, backtest-only LEAN implementation of an explicit mechanical variant. Live execution is disabled. The daily-IV-history defect is corrected: observations now continue while a position is held. The corrected five-name benchmark is 18 pairs / −$3,002, superseding the old 25 / +$293 headline. See [the current quantitative review](research/funnel_20261026/REPORT.md) for corrected comparisons and reconciled receipts. See [the dated research report](research/automatic_20261025/REPORT.md) for completed cloud runs, limitations and provenance. The previous algorithm and README are preserved in that directory as `strategy_before.py` and `README_before.md`.
+
+The earlier p5(IV minus future realized volatility) sizing formula is retired: it is neither an option-loss quantile nor an IV-shock estimate. The current baseline uses explicit scenario repricing, rounded contract counts and separate margin limits. Those scenario limits are provisional research conventions.
+
+Use the existing shared server; do not restart it to submit work. Queue source snapshots with unique names via `qc-backtest-server queue --strategy ss45dte`. An uncertain remote create response must be reconciled before retrying. Read the workspace USAGE.md for the current commands. Targeted verification: `.venv/bin/python -m unittest discover -s strategies/ss45dte/tests -v`.

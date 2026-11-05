@@ -1,0 +1,3 @@
+# The shared local storage adapter plus optional market-data integration.
+-e .
+-e ../data_providers
