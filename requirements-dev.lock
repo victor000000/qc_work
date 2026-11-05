@@ -78,3 +78,5 @@ urllib3==2.8.0
     # via requests
 xgboost-cpu==3.4.1
     # via -r requirements-dev.txt
+
+akquant==0.3.67
