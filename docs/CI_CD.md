@@ -17,3 +17,5 @@ Run Rust checks with `cargo fmt --all -- --check`, `cargo clippy --workspace --a
 QC cloud parity, provider data permissions, actual account funding and live execution are separate integrations. Local/Actions success cannot certify them. C0 margin intervention, historical IV root cause, strict provider readiness and full feature-sidecar parity remain open in 0.9.0.
 
 No deployment target or CD workflow is configured. The CI release binary is a build artifact, not a deployment. No service, account or brokerage action is taken by these checks.
+
+Security refresh (2026-11-05): rustls-webpki 0.103.16, webpki-root-certs/webpki-roots 1.0.10 address RUSTSEC-2026-0382/0383/0381. Tokio 1.53.3 addresses the AsyncFd I/O-safety warning RUSTSEC-2026-0386 (https://rustsec.org/advisories/RUSTSEC-2026-0386.html). Audit remains enabled without advisory suppressions. Sstrangle CI explicitly selects its tests directory and installs akquant 0.3.67 so the real replay-engine capital regression runs.
