@@ -43,7 +43,7 @@ def get_drive_service(creds):
     return build("drive", "v3", credentials=Credentials(
         token=token_data.get("access_token"),
         refresh_token=token_data.get("refresh_token"),
-        token_uri="REDACTED_RESTORE_FROM_PRIVATE_CREDENTIAL_BACKUP",
+        token_uri="https://oauth2.googleapis.com/token",
         client_id=creds["client_id"],
         client_secret=creds["client_secret"],
         scopes=["https://www.googleapis.com/auth/drive"],

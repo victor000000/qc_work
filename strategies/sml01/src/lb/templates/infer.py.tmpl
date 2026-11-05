@@ -1,0 +1,329 @@
+from AlgorithmImports import *
+import json
+import math
+import numpy as np
+from datetime import datetime
+
+# Render-time sizing — the SAME _size() rule the footer used for VAL, replayed
+# here for OOS. mode + thresh come from the saved cell payload (no mismatch).
+#   ramp        = min(1,(p-thresh)*200) if p>thresh else 0          (legacy)
+#   binary      = 1.0 if p>thresh else 0.0                          (label-responsive)
+#   cdf_plain   = clip(2*Phi((p-thresh)/sqrt(p(1-p)))-1,0,1) if p>thresh else 0
+#   cdf_overlay = cdf_plain * clip(std_slow/std_fast, 0.6, 1.0)     (vol-targeted)
+_VOL_FAST = 10
+_VOL_SLOW = 60
+
+
+def _size(p, thresh, sizing, rbuf):
+    if sizing == "crashveto":          # tail-risk veto: full long unless a crash is predicted (p_crash > thresh) -> flat
+        return 0.0 if p > thresh else 1.0
+    if sizing == "short_carry":        # variance-risk-premium CARRY harvest (VIXY/VXX): full SHORT to earn the
+        return 0.0 if p > thresh else -1.0   # VIX-future roll decay, FLAT when an up-spike is predicted (p>thresh). Inverse of crashveto.
+    if sizing == "crashsoft":          # SOFT crash-sizer (the crashveto cliff fix, SPY lead R876): full long
+        lo = 0.5 * thresh              # while p_crash <= lo, linear de-lever lo->thresh, flat at p >= thresh.
+        if p <= lo:                    # Smooth ramp -> partial rebalances (trades>80 reachable) and no
+            return 1.0                 # single-threshold cliff (the lead's 2.53-vs-0.84 fragility).
+        return float(max(0.0, (thresh - p) / (thresh - lo)))
+    if sizing == "crashlean":          # gentle continuous crash-de-risk: lean down proportional to p_crash, keep drift
+        return float(min(1.0, max(0.3, 1.0 - 1.5 * p)))
+    if sizing == "tilt_up":            # LEVER-UP tilt (equity-index structural-barrier mirror, 2026-06-11):
+        if p <= thresh:                # NEVER below 1.0x (keep ALL drift — the de-lever bracket proved
+            return 1.0                 # any drift forfeit loses); lean UP to 1.5x only when the signal
+        pp = min(max(p, 1e-6), 1.0 - 1e-6)   # is favorable. w = 1 + 0.5*cdf_bet(p,thresh).
+        zu = (pp - thresh) / math.sqrt(pp * (1.0 - pp))
+        bu = 2.0 * 0.5 * (1.0 + math.erf(zu / math.sqrt(2.0))) - 1.0
+        return float(1.0 + 0.5 * min(1.0, max(0.0, bu)))
+    if sizing == "tilt":               # LONG-ANCHORED drift tilt: full long at p>=0.5, lean down to a 0.5
+        return float(max(0.5, min(1.0, 0.5 + p)))   # FLOOR as the model predicts a down-wiggle (keeps index drift,
+                                       # harvests the auc~0.95 reversion signal as a LEAN, not an in/out gate).
+    if sizing == "kelly_dd":           # DRAWDOWN-CAPPED Kelly (backlog #13): f*=2p-1 shrunk by
+        if p <= thresh:                # lam=ln(.05)/ln(.8)~=1.857 (P(DD>20%)<5%). Constant — VAL==OOS.
+            return 0.0
+        return float(min(1.0, max(0.0, (2.0 * p - 1.0) / 1.857)))
+    if sizing == "longshort":
+        return 1.0 if p > thresh else (-1.0 if p < 1.0 - thresh else 0.0)
+    if sizing in ("ls_cdf", "ls_overlay"):
+        pp = min(max(p, 1e-6), 1.0 - 1e-6)
+        zc = (pp - 0.5) / math.sqrt(pp * (1.0 - pp))
+        w = float(min(1.0, max(-1.0, 2.0 * 0.5 * (1.0 + math.erf(zc / math.sqrt(2.0))) - 1.0)))
+        if sizing == "ls_overlay":              # vol-target the long/short magnitude, keep sign (causal)
+            m = len(rbuf)
+            if m >= _VOL_FAST + 2:
+                fast = float(np.std(rbuf[-_VOL_FAST:]))
+                slow = float(np.std(rbuf[-min(m, _VOL_SLOW):]))
+                if fast > 1e-9:
+                    w *= float(min(1.0, max(0.45, slow / fast)))
+        return w
+    if sizing == "binary":
+        return 1.0 if p > thresh else 0.0
+    if sizing == "ramp":
+        return float(min(1.0, (p - thresh) * 200.0)) if p > thresh else 0.0
+    if sizing == "lever3":              # constant 3x leverage on the directional cdf bet; leak-free, leveraged
+        if p <= thresh:
+            return 0.0
+        pp = min(max(p, 1e-6), 1.0 - 1e-6)
+        z = (pp - thresh) / math.sqrt(pp * (1.0 - pp))
+        bb = 2.0 * 0.5 * (1.0 + math.erf(z / math.sqrt(2.0))) - 1.0
+        return float(min(3.0, 3.0 * max(0.0, bb)))
+    if p <= thresh:
+        return 0.0
+    pp = min(max(p, 1e-6), 1.0 - 1e-6)
+    z = (pp - thresh) / math.sqrt(pp * (1.0 - pp))
+    b = 2.0 * 0.5 * (1.0 + math.erf(z / math.sqrt(2.0))) - 1.0  # 2*Phi(z)-1
+    b = float(min(1.0, max(0.0, b)))
+    if sizing == "cdf_overlay":
+        m = len(rbuf)
+        if m >= _VOL_FAST + 2:
+            fast = float(np.std(rbuf[-_VOL_FAST:]))
+            slow = float(np.std(rbuf[-min(m, _VOL_SLOW):]))
+            if fast > 1e-9:
+                b *= float(min(1.0, max(0.6, slow / fast)))
+    if sizing == "dd_overlay":          # drawdown-aware: throttle the bet when the asset is
+        m = len(rbuf)                   # underwater vs its recent rolling peak (causal, rbuf only)
+        if m >= _VOL_FAST + 2:
+            win = np.asarray(rbuf[-min(m, _VOL_SLOW):], dtype=float)
+            cum = np.cumsum(win)                       # recent log-equity of the asset
+            dd = float(cum[-1] - float(np.max(cum)))   # <= 0: current log DD from recent peak
+            ref = 3.0 * float(np.std(win)) * math.sqrt(len(win))   # vol-normalized DD scale (~3σ)
+            if ref > 1e-9:
+                b *= float(min(1.0, max(0.5, 1.0 + dd / ref)))     # 1.0 at peak -> 0.5 floor when deep
+    if sizing == "cond_es":             # CONDITIONAL EXPECTED-SHORTFALL sizing (Wang joint-dist talk):
+        m = len(rbuf)                   # throttle the cdf bet when the asset's RECENT left-tail loss
+        if m >= _VOL_FAST + 2:          # (fast ES) spikes above its baseline (slow ES). ES_q = mean of
+            ff = sorted(rbuf[-_VOL_FAST:])                 # the worst q-fraction of returns; tail-focused —
+            ss = sorted(rbuf[-min(m, _VOL_SLOW):])         # the asymmetric-risk analog of cdf_overlay's std ratio.
+            kf = max(1, int(0.2 * len(ff)))                # causal (rbuf only): rbuf holds returns up to i-1.
+            ks = max(1, int(0.2 * len(ss)))
+            es_fast = -sum(ff[:kf]) / kf                   # >0 = avg loss across the worst kf recent returns
+            es_slow = -sum(ss[:ks]) / ks
+            if es_fast > 1e-9 and es_slow > 0.0:
+                b *= float(min(1.0, max(0.4, es_slow / es_fast)))   # 1.0 calm -> 0.4 floor when tail spikes
+    if sizing == "ddbreaker":           # dd_overlay smooth throttle + HARD circuit-breaker (flat on
+        m = len(rbuf)                   # extreme DD frac<0.4) to cut the tail MaxDD. Causal (rbuf only).
+        if m >= _VOL_FAST + 2:
+            win = np.asarray(rbuf[-min(m, _VOL_SLOW):], dtype=float)
+            cum = np.cumsum(win)
+            dd = float(cum[-1] - float(np.max(cum)))
+            ref = 3.0 * float(np.std(win)) * math.sqrt(len(win))
+            if ref > 1e-9:
+                frac = 1.0 + dd / ref
+                b = 0.0 if frac < 0.4 else b * float(min(1.0, max(0.4, frac)))
+    if sizing == "voltarget":           # two-sided vol-target (risk-parity): lever up in calm, de-lever in stress
+        m = len(rbuf)
+        if m >= _VOL_FAST + 2:
+            fast = float(np.std(rbuf[-_VOL_FAST:]))
+            slow = float(np.std(rbuf[-min(m, _VOL_SLOW):]))
+            if fast > 1e-9:
+                b *= float(min(1.8, max(0.35, slow / fast)))
+    if sizing == "levervt":             # high-leverage two-sided vol-target (cap 4x, floor 0.2x); leak-free, leveraged
+        m = len(rbuf)
+        if m >= _VOL_FAST + 2:
+            fast = float(np.std(rbuf[-_VOL_FAST:]))
+            slow = float(np.std(rbuf[-min(m, _VOL_SLOW):]))
+            if fast > 1e-9:
+                b *= float(min(4.0, max(0.2, slow / fast)))
+    if sizing == "trend_gate":          # slow 200-bar (=200-day on `daily` axis) MA trend gate; leak-free
+        m = len(rbuf)
+        if m >= _VOL_FAST + 2:
+            fast = float(np.std(rbuf[-_VOL_FAST:]))
+            slow = float(np.std(rbuf[-min(m, _VOL_SLOW):]))
+            if fast > 1e-9:
+                b *= float(min(1.0, max(0.6, slow / fast)))
+        if m >= 200:
+            _lp = np.cumsum(np.asarray(rbuf, dtype=float))
+            if _lp[-1] <= float(np.mean(_lp[-200:])):
+                b = 0.0
+    if sizing == "trendlev":            # leveraged trend gate: 3x long above the 200-bar MA, flat below; leak-free, leveraged
+        m = len(rbuf)
+        if m >= 200:
+            _lp = np.cumsum(np.asarray(rbuf, dtype=float))
+            if _lp[-1] <= float(np.mean(_lp[-200:])):
+                return 0.0
+        return float(min(3.0, 3.0 * b))
+    if sizing == "trendlev_vt":         # vol-targeted leveraged trend gate: 3x above the 200-bar MA, de-levered in stress, flat below; leak-free
+        m = len(rbuf)
+        if m >= 200:
+            _lp = np.cumsum(np.asarray(rbuf, dtype=float))
+            if _lp[-1] <= float(np.mean(_lp[-200:])):
+                return 0.0
+        w = 3.0
+        if m >= _VOL_FAST + 2:
+            fast = float(np.std(rbuf[-_VOL_FAST:]))
+            slow = float(np.std(rbuf[-min(m, _VOL_SLOW):]))
+            if fast > 1e-9:
+                w *= float(min(1.0, max(0.2, slow / fast)))
+        return float(min(3.0, w * b))
+    if sizing == "trendlev_dd":         # 3x above the 200-bar MA, flat below, PLUS a fast drawdown circuit-breaker
+        m = len(rbuf)                   # (flat on frac<0.4) to cut the leveraged Aug-2024 fast-V-dip tail. Leak-free.
+        if m >= 200:
+            _lp = np.cumsum(np.asarray(rbuf, dtype=float))
+            if _lp[-1] <= float(np.mean(_lp[-200:])):
+                return 0.0
+        w = 3.0 * b
+        if m >= _VOL_FAST + 2:
+            win = np.asarray(rbuf[-min(m, _VOL_SLOW):], dtype=float)
+            cum = np.cumsum(win)
+            dd = float(cum[-1] - float(np.max(cum)))
+            ref = 3.0 * float(np.std(win)) * math.sqrt(len(win))
+            if ref > 1e-9:
+                frac = 1.0 + dd / ref
+                w = 0.0 if frac < 0.4 else w * float(min(1.0, max(0.3, frac)))
+        return float(min(3.0, w))
+    return b
+
+TICKER = "__TICKER__"
+# Cell selector "{axis}_{label}" substituted by the driver. If left literal
+# "__CELL__", fall back to the val-DA-selected best cell via latest_key.json.
+CELL = "__CELL__"
+
+
+class AutoresearchInfer(QCAlgorithm):
+    def initialize(self):
+        self.set_start_date(2023, 8, 1)   # OOS window
+        self.set_end_date(2026, 7, 1)
+        self.set_cash(100000)
+        _sec = self.add_equity(TICKER, Resolution.MINUTE, data_normalization_mode=DataNormalizationMode.RAW)  # RAW: PIT + live-matching (leak audit 2026-06-07)
+        try:
+            _sec.set_leverage(5.0)   # margin headroom so leveraged sizers (e.g. levervt) can request >1x; unused by <=1x configs (byte-identical for them)
+        except Exception:
+            pass
+        self.sym = _sec.symbol
+        self.preds = []
+        self.idx = 0
+        self.thresh = 0.45
+        self.sizing = "cdf_overlay"
+        self.band = 0.01       # rebalance ADJUSTMENT dead-band; overridden from the cell payload below
+        self.meta = {}
+        self._eq = []          # daily equity, for Drawdown Area
+        self._last_day = None
+        self._rbuf = []        # trailing bar log-returns (causal, for inverse-vol)
+        self._last_close = None
+        self._cur_w = 0.0      # current target weight (rebalance dead-band)
+        self._returns_key = None  # set after the cell key resolves; additive OOS-returns store
+        key = f"autoresearch/{TICKER}/latest_key.json"
+        try:
+            if CELL == ("__" "CELL__"):   # split literal so render's .replace can't clobber this guard
+                ptr = json.loads(self.object_store.read(f"autoresearch/{TICKER}/latest_key.json"))
+                key = ptr["key"]
+            else:
+                key = f"autoresearch/{TICKER}/cell_{CELL}.json"
+            data = json.loads(self.object_store.read(key))
+            self.preds = data["predictions"]
+            if not isinstance(self.preds, list) or not self.preds:
+                raise ValueError("model contains no predictions")
+            previous_time = None
+            for prediction in self.preds:
+                pred_time = datetime.strptime(prediction["time"][:19], "%Y-%m-%dT%H:%M:%S")
+                if previous_time is not None and pred_time < previous_time:
+                    raise ValueError("prediction timestamps are out of order")
+                if not math.isfinite(float(prediction["pred"])):
+                    raise ValueError("prediction is not finite")
+                previous_time = pred_time
+            if data.get("thresh") is not None:
+                self.thresh = float(data["thresh"])
+            if data.get("sizing"):
+                self.sizing = str(data["sizing"])
+            if data.get("rebal_band") is not None:
+                self.band = float(data["rebal_band"])
+            self.meta = {k: data.get(k) for k in
+                         ("synth_cal", "val_da", "train_auc", "val_auc", "cfg")}
+            self._returns_key = key.replace("/cell_", "/returns_")  # mirror cell key; for decay/PBO
+        except Exception as error:
+            raise RuntimeError(f"Cannot load inference predictions from {key}: {error}") from error
+        self.set_runtime_statistic("n_predictions", str(len(self.preds)))
+
+    def on_data(self, slice):
+        # Sample equity once per day (for DA), regardless of prediction state.
+        now = self.time.date()
+        if now != self._last_day:
+            self._last_day = now
+            self._eq.append(float(self.portfolio.total_portfolio_value))
+
+        if self.idx >= len(self.preds):
+            return
+        if self.sym not in slice.bars:
+            return
+        b = slice.bars[self.sym]
+        p = self.preds[self.idx]
+        pred_time = datetime.strptime(p["time"][:19], "%Y-%m-%dT%H:%M:%S")
+        if b.end_time >= pred_time:
+            self.idx += 1
+            # _size() uses returns KNOWN at this bar (causal): decide size from
+            # _rbuf, THEN append this bar's realized return. SAME rule as VAL.
+            w = _size(float(p["pred"]), self.thresh, self.sizing, self._rbuf)
+            # Rebalance dead-band 0.01; w may be NEGATIVE (short) now.
+            if abs(w) < 0.01:                       # flat band
+                if self._cur_w != 0.0:
+                    self.liquidate(self.sym)
+                    self._cur_w = 0.0
+            elif abs(w - self._cur_w) > self.band:  # long (w>0) OR short (w<0); band from cell payload
+                self.set_holdings(self.sym, w)
+                self._cur_w = w
+            c = float(b.close)
+            if self._last_close is not None and self._last_close > 0:
+                self._rbuf.append(math.log(c / self._last_close))
+            self._last_close = c
+
+    def on_end_of_algorithm(self):
+        self.set_runtime_statistic("n_replayed_predictions", str(self.idx))
+        if self.idx == 0:
+            raise RuntimeError("No inference predictions were replayed in the backtest window")
+        # Real OOS Drawdown Area: DA = Σ_t (1 - E_t / peak_t) on daily equity.
+        da, peak = 0.0, None
+        for v in self._eq:
+            peak = v if (peak is None or v > peak) else peak
+            if peak and peak > 0:
+                da += 1.0 - v / peak
+        self.set_runtime_statistic("da_oos", str(round(da, 4)))
+        # OOS daily Sharpe + higher moments + N — the inputs for PSR / Deflated-Sharpe
+        # trials-adjustment (selection-bias control). Computed from daily equity.
+        eq = np.array(self._eq, dtype=float)
+        if len(eq) > 4:
+            rets = np.diff(eq) / np.where(eq[:-1] == 0, np.nan, eq[:-1])
+            rets = rets[np.isfinite(rets)]
+            if self._returns_key:   # ADDITIVE: persist OOS daily returns for decay-monitor / PBO (no effect on metric)
+                try:
+                    self.object_store.save(self._returns_key,
+                                           json.dumps([round(float(x), 8) for x in rets.tolist()[:6000]]))
+                except Exception:
+                    pass
+            # Anytime-valid e-value (testing-by-betting, WSR 2023; H0: mean<=0) on the DAILY OOS
+            # returns — peeking-robust evidence the edge is alive. Post-hoc stat (no effect on
+            # decisions/metric/leak), like sharpe_oos. e>=20 == anytime-valid significance at 0.05.
+            try:
+                _K = 1.0; _s = 0.0; _s2 = 0.0; _n = 0
+                for _r in rets.tolist():
+                    _r = -0.18 if _r < -0.18 else float(_r)
+                    if _n >= 5:
+                        _m = _s / _n
+                        _v = _s2 / _n - _m * _m
+                        _v = 1e-9 if _v < 1e-9 else _v
+                        _lam = _m / _v
+                        _lam = 0.0 if _lam < 0 else (5.0 if _lam > 5.0 else _lam)
+                    else:
+                        _lam = 0.0
+                    _K = _K * (1.0 + _lam * _r)
+                    _K = 1e-12 if _K < 1e-12 else _K
+                    _s += _r; _s2 += _r * _r; _n += 1
+                self.set_runtime_statistic("evalue_oos", str(round(_K, 4)))
+            except Exception:
+                pass
+            sd = float(np.std(rets, ddof=1)) if len(rets) > 3 else 0.0
+            if len(rets) > 3 and sd > 1e-12:
+                mu = float(np.mean(rets))
+                z = (rets - mu) / sd
+                self.set_runtime_statistic("sharpe_oos", str(round(mu / sd * (252.0 ** 0.5), 4)))
+                self.set_runtime_statistic("skew_oos", str(round(float(np.mean(z ** 3)), 4)))
+                self.set_runtime_statistic("kurt_oos", str(round(float(np.mean(z ** 4)), 4)))
+                self.set_runtime_statistic("n_days", str(int(len(rets))))
+                # Decay read (cheap staleness signal): early-half vs late-half OOS Sharpe.
+                h = len(rets) // 2
+                if h > 3:
+                    for nm, seg in (("sharpe_early", rets[:h]), ("sharpe_late", rets[h:])):
+                        ssd = float(np.std(seg, ddof=1))
+                        self.set_runtime_statistic(
+                            nm, str(round(float(np.mean(seg)) / ssd * (252.0 ** 0.5), 4)) if ssd > 1e-12 else "0.0")
+        # Echo the per-cell train/val metrics so the round runner has them.
+        for k in ("synth_cal", "val_da", "train_auc", "val_auc"):
+            if self.meta.get(k) is not None:
+                self.set_runtime_statistic(k, str(self.meta[k]))

@@ -1,0 +1,276 @@
+from AlgorithmImports import *
+import json
+import math
+import numpy as np
+from datetime import datetime
+
+# Wang same-ticker MULTI-AXIS combination (his #1 generalization + drawdown-reduction lever):
+# replay N models built on DIFFERENT custom axes for ONE ticker and combine at the POSITION layer.
+#   MODE "agree" = hold the mean position only when ALL models agree (none flat / same sign) —
+#                  Wang's chop detector: disagreement = chop = go FLAT (continuous natural flat
+#                  periods, no explicit threshold). Cuts drawdown by sitting out when models conflict.
+#   MODE "net"   = mean of the models' positions (diversification / netting; offsets cancel).
+# Leak-free: each cell's SAVED predictions are replayed (no refit), with a causal per-cell rbuf fed
+# to the SAME _size rule the VAL/OOS path uses. __CELLS__ / __MODE__ injected at render time.
+_VOL_FAST = 10
+_VOL_SLOW = 60
+
+
+def _size(p, thresh, sizing, rbuf):
+    if sizing == "crashveto":
+        return 0.0 if p > thresh else 1.0
+    if sizing == "short_carry":
+        return 0.0 if p > thresh else -1.0
+    if sizing == "crashsoft":
+        lo = 0.5 * thresh
+        if p <= lo:
+            return 1.0
+        return float(max(0.0, (thresh - p) / (thresh - lo)))
+    if sizing == "crashlean":
+        return float(min(1.0, max(0.3, 1.0 - 1.5 * p)))
+    if sizing == "tilt_up":
+        if p <= thresh:
+            return 1.0
+        pp = min(max(p, 1e-6), 1.0 - 1e-6)
+        zu = (pp - thresh) / math.sqrt(pp * (1.0 - pp))
+        bu = 2.0 * 0.5 * (1.0 + math.erf(zu / math.sqrt(2.0))) - 1.0
+        return float(1.0 + 0.5 * min(1.0, max(0.0, bu)))
+    if sizing == "tilt":
+        return float(max(0.5, min(1.0, 0.5 + p)))
+    if sizing == "kelly_dd":
+        if p <= thresh:
+            return 0.0
+        return float(min(1.0, max(0.0, (2.0 * p - 1.0) / 1.857)))
+    if sizing == "longshort":
+        return 1.0 if p > thresh else (-1.0 if p < 1.0 - thresh else 0.0)
+    if sizing in ("ls_cdf", "ls_overlay"):
+        pp = min(max(p, 1e-6), 1.0 - 1e-6)
+        zc = (pp - 0.5) / math.sqrt(pp * (1.0 - pp))
+        w = float(min(1.0, max(-1.0, 2.0 * 0.5 * (1.0 + math.erf(zc / math.sqrt(2.0))) - 1.0)))
+        if sizing == "ls_overlay":
+            m = len(rbuf)
+            if m >= _VOL_FAST + 2:
+                fast = float(np.std(rbuf[-_VOL_FAST:]))
+                slow = float(np.std(rbuf[-min(m, _VOL_SLOW):]))
+                if fast > 1e-9:
+                    w *= float(min(1.0, max(0.45, slow / fast)))
+        return w
+    if sizing == "binary":
+        return 1.0 if p > thresh else 0.0
+    if sizing == "ramp":
+        return float(min(1.0, (p - thresh) * 200.0)) if p > thresh else 0.0
+    if sizing == "lever3":              # constant 3x leverage on the directional cdf bet; leak-free, leveraged
+        if p <= thresh:
+            return 0.0
+        pp = min(max(p, 1e-6), 1.0 - 1e-6)
+        z = (pp - thresh) / math.sqrt(pp * (1.0 - pp))
+        bb = 2.0 * 0.5 * (1.0 + math.erf(z / math.sqrt(2.0))) - 1.0
+        return float(min(3.0, 3.0 * max(0.0, bb)))
+    if p <= thresh:
+        return 0.0
+    pp = min(max(p, 1e-6), 1.0 - 1e-6)
+    z = (pp - thresh) / math.sqrt(pp * (1.0 - pp))
+    b = 2.0 * 0.5 * (1.0 + math.erf(z / math.sqrt(2.0))) - 1.0
+    b = float(min(1.0, max(0.0, b)))
+    if sizing == "cdf_overlay":
+        m = len(rbuf)
+        if m >= _VOL_FAST + 2:
+            fast = float(np.std(rbuf[-_VOL_FAST:]))
+            slow = float(np.std(rbuf[-min(m, _VOL_SLOW):]))
+            if fast > 1e-9:
+                b *= float(min(1.0, max(0.6, slow / fast)))
+    if sizing == "dd_overlay":
+        m = len(rbuf)
+        if m >= _VOL_FAST + 2:
+            win = np.asarray(rbuf[-min(m, _VOL_SLOW):], dtype=float)
+            cum = np.cumsum(win)
+            dd = float(cum[-1] - float(np.max(cum)))
+            ref = 3.0 * float(np.std(win)) * math.sqrt(len(win))
+            if ref > 1e-9:
+                b *= float(min(1.0, max(0.5, 1.0 + dd / ref)))
+    if sizing == "cond_es":
+        m = len(rbuf)
+        if m >= _VOL_FAST + 2:
+            ff = sorted(rbuf[-_VOL_FAST:])
+            ss = sorted(rbuf[-min(m, _VOL_SLOW):])
+            kf = max(1, int(0.2 * len(ff)))
+            ks = max(1, int(0.2 * len(ss)))
+            es_fast = -sum(ff[:kf]) / kf
+            es_slow = -sum(ss[:ks]) / ks
+            if es_fast > 1e-9 and es_slow > 0.0:
+                b *= float(min(1.0, max(0.4, es_slow / es_fast)))
+    if sizing == "ddbreaker":
+        m = len(rbuf)
+        if m >= _VOL_FAST + 2:
+            win = np.asarray(rbuf[-min(m, _VOL_SLOW):], dtype=float)
+            cum = np.cumsum(win)
+            dd = float(cum[-1] - float(np.max(cum)))
+            ref = 3.0 * float(np.std(win)) * math.sqrt(len(win))
+            if ref > 1e-9:
+                frac = 1.0 + dd / ref
+                b = 0.0 if frac < 0.4 else b * float(min(1.0, max(0.4, frac)))
+    if sizing == "voltarget":
+        m = len(rbuf)
+        if m >= _VOL_FAST + 2:
+            fast = float(np.std(rbuf[-_VOL_FAST:]))
+            slow = float(np.std(rbuf[-min(m, _VOL_SLOW):]))
+            if fast > 1e-9:
+                b *= float(min(1.8, max(0.35, slow / fast)))
+    if sizing == "levervt":             # high-leverage two-sided vol-target (cap 4x, floor 0.2x); leak-free, leveraged
+        m = len(rbuf)
+        if m >= _VOL_FAST + 2:
+            fast = float(np.std(rbuf[-_VOL_FAST:]))
+            slow = float(np.std(rbuf[-min(m, _VOL_SLOW):]))
+            if fast > 1e-9:
+                b *= float(min(4.0, max(0.2, slow / fast)))
+    if sizing == "trend_gate":          # slow 200-bar (=200-day on `daily` axis) MA trend gate; leak-free
+        m = len(rbuf)
+        if m >= _VOL_FAST + 2:
+            fast = float(np.std(rbuf[-_VOL_FAST:]))
+            slow = float(np.std(rbuf[-min(m, _VOL_SLOW):]))
+            if fast > 1e-9:
+                b *= float(min(1.0, max(0.6, slow / fast)))
+        if m >= 200:
+            _lp = np.cumsum(np.asarray(rbuf, dtype=float))
+            if _lp[-1] <= float(np.mean(_lp[-200:])):
+                b = 0.0
+    if sizing == "trendlev":            # leveraged trend gate: 3x long above the 200-bar MA, flat below; leak-free, leveraged
+        m = len(rbuf)
+        if m >= 200:
+            _lp = np.cumsum(np.asarray(rbuf, dtype=float))
+            if _lp[-1] <= float(np.mean(_lp[-200:])):
+                return 0.0
+        return float(min(3.0, 3.0 * b))
+    if sizing == "trendlev_vt":         # vol-targeted leveraged trend gate: 3x above the 200-bar MA, de-levered in stress, flat below; leak-free
+        m = len(rbuf)
+        if m >= 200:
+            _lp = np.cumsum(np.asarray(rbuf, dtype=float))
+            if _lp[-1] <= float(np.mean(_lp[-200:])):
+                return 0.0
+        w = 3.0
+        if m >= _VOL_FAST + 2:
+            fast = float(np.std(rbuf[-_VOL_FAST:]))
+            slow = float(np.std(rbuf[-min(m, _VOL_SLOW):]))
+            if fast > 1e-9:
+                w *= float(min(1.0, max(0.2, slow / fast)))
+        return float(min(3.0, w * b))
+    if sizing == "trendlev_dd":         # 3x above the 200-bar MA, flat below, PLUS a fast drawdown circuit-breaker
+        m = len(rbuf)                   # (flat on frac<0.4) to cut the leveraged Aug-2024 fast-V-dip tail. Leak-free.
+        if m >= 200:
+            _lp = np.cumsum(np.asarray(rbuf, dtype=float))
+            if _lp[-1] <= float(np.mean(_lp[-200:])):
+                return 0.0
+        w = 3.0 * b
+        if m >= _VOL_FAST + 2:
+            win = np.asarray(rbuf[-min(m, _VOL_SLOW):], dtype=float)
+            cum = np.cumsum(win)
+            dd = float(cum[-1] - float(np.max(cum)))
+            ref = 3.0 * float(np.std(win)) * math.sqrt(len(win))
+            if ref > 1e-9:
+                frac = 1.0 + dd / ref
+                w = 0.0 if frac < 0.4 else w * float(min(1.0, max(0.3, frac)))
+        return float(min(3.0, w))
+    return b
+
+
+TICKER = "__TICKER__"
+CELLS = __CELLS__          # list of ObjectStore cell keys (under autoresearch/{TICKER}/)
+MODE = "__MODE__"          # "agree" (chop detector -> flat on disagreement) or "net" (mean)
+
+
+class AutoresearchCombine(QCAlgorithm):
+    def initialize(self):
+        self.set_start_date(2023, 8, 1)   # OOS window (matches solo infer)
+        self.set_end_date(2026, 7, 1)
+        self.set_cash(100000)
+        sec = self.add_equity(TICKER, Resolution.MINUTE, data_normalization_mode=DataNormalizationMode.RAW)
+        try:
+            sec.set_leverage(4.0)         # headroom for tilt_up/voltarget >1.0 legs
+        except Exception:
+            pass
+        self.sym = sec.symbol
+        self.models = []
+        loaded = 0
+        for key in CELLS:
+            preds, thresh, sizing = [], 0.45, "cdf_overlay"
+            try:
+                data = json.loads(self.object_store.read("autoresearch/" + TICKER + "/" + key))
+                preds = data.get("predictions", [])
+                if data.get("thresh") is not None:
+                    thresh = float(data["thresh"])
+                if data.get("sizing"):
+                    sizing = str(data["sizing"])
+                if preds:
+                    loaded += 1
+            except Exception as e:
+                self.set_runtime_statistic("load_err", str(e)[:50])
+            self.models.append({"preds": preds, "idx": 0, "thresh": thresh, "sizing": sizing,
+                                "rbuf": [], "last_close": None, "pos": 0.0})
+        self.set_runtime_statistic("n_loaded", str(loaded))
+        self.set_runtime_statistic("n_cells", str(len(CELLS)))
+        self._cur_w = 0.0
+        self._eq = []
+        self._last_day = None
+
+    def on_data(self, slice):
+        now = self.time.date()
+        if now != self._last_day:
+            self._last_day = now
+            self._eq.append(float(self.portfolio.total_portfolio_value))
+        if self.sym not in slice.bars:
+            return
+        b = slice.bars[self.sym]
+        c = float(b.close)
+        advanced = False
+        for m in self.models:
+            if m["idx"] >= len(m["preds"]):
+                continue
+            p = m["preds"][m["idx"]]
+            try:
+                pt = datetime.strptime(p["time"][:19], "%Y-%m-%dT%H:%M:%S")
+            except Exception:
+                pt = b.end_time
+            if b.end_time >= pt:
+                m["idx"] += 1
+                advanced = True
+                m["pos"] = _size(float(p["pred"]), m["thresh"], m["sizing"], m["rbuf"])
+                if m["last_close"] is not None and m["last_close"] > 0:
+                    m["rbuf"].append(math.log(c / m["last_close"]))
+                m["last_close"] = c
+        if not advanced:
+            return
+        poss = [m["pos"] for m in self.models]
+        if MODE == "agree":
+            # Wang chop detector: hold the mean ONLY if every model is non-flat AND same sign;
+            # any disagreement (a flat model, or opposite signs) -> go FLAT.
+            signs = [(1 if x > 0.05 else (-1 if x < -0.05 else 0)) for x in poss]
+            if signs and all(s == signs[0] and s != 0 for s in signs):
+                w = float(np.mean(poss))
+            else:
+                w = 0.0
+        else:
+            w = float(np.mean(poss))
+        if abs(w - self._cur_w) > 0.01:
+            if abs(w) < 0.01:
+                self.liquidate(self.sym)
+                self._cur_w = 0.0
+            else:
+                self.set_holdings(self.sym, w)
+                self._cur_w = w
+
+    def on_end_of_algorithm(self):
+        da, peak = 0.0, None
+        for v in self._eq:
+            peak = v if (peak is None or v > peak) else peak
+            if peak and peak > 0:
+                da += 1.0 - v / peak
+        self.set_runtime_statistic("da_oos", str(round(da, 4)))
+        eq = np.array(self._eq, dtype=float)
+        if len(eq) > 4 and eq[0] > 0:
+            rets = np.diff(eq) / np.where(eq[:-1] == 0, np.nan, eq[:-1])
+            rets = rets[np.isfinite(rets)]
+            sd = float(np.std(rets, ddof=1)) if len(rets) > 3 else 0.0
+            if sd > 1e-12:
+                self.set_runtime_statistic("sharpe_oos", str(round(float(np.mean(rets)) / sd * (252.0 ** 0.5), 4)))
+            self.set_runtime_statistic("n_days", str(int(len(rets))))
+        self.quit("combine replay done")

@@ -143,7 +143,7 @@ mod tests {
             "existing",
             "recover-read",
             Duration::from_secs(1),
-            Duration::from_secs(60),
+            Duration::from_mins(1),
         )
         .await
         .unwrap();

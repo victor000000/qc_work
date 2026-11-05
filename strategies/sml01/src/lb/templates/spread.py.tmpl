@@ -1,0 +1,99 @@
+from AlgorithmImports import *
+import math
+import numpy as np
+import pandas as pd
+from datetime import datetime
+
+# BETA-NEUTRAL SPREAD (deep-review innovation #2, user-authorized 2026-06-14 relaxing the no-pairs rule):
+# trade w*(QQQ - beta*SPY) — long QQQ, short beta*SPY — so the MARKET-COMMON drawdown (incl. the Apr-2025
+# exogenous gap) mechanically CANCELS in the spread, leaving QQQ's idiosyncratic tech-excess return. The
+# 200-day-MA trend gate (deep-review #1) is applied to the SPREAD's own price: hold the spread above its MA,
+# flat below; LEV scales the gross. LEAK-FREE: beta is fit on PRE-OOS daily history only (frozen), the MA is
+# a trailing mean of realized spread returns, and the OOS window (set_start_date) is never used to fit anything.
+TICKER = "__TICKER__"          # QQQ
+HEDGE = "__HEDGE__"            # SPY (beta-matched broad-market hedge)
+LEV = __LEV__                  # gross multiplier on the gated spread (1.0 plain, 3.0 leveraged)
+_L = 200                       # trend-gate MA length (daily bars)
+
+
+class SpreadTrade(QCAlgorithm):
+    def initialize(self):
+        self.set_start_date(2023, 8, 1)   # OOS window — matches every solo infer
+        self.set_end_date(2026, 7, 1)
+        self.set_cash(100000)
+        qa = self.add_equity(TICKER, Resolution.MINUTE, data_normalization_mode=DataNormalizationMode.RAW)
+        ha = self.add_equity(HEDGE, Resolution.MINUTE, data_normalization_mode=DataNormalizationMode.RAW)
+        for s in (qa, ha):
+            try:
+                s.set_leverage(8.0)        # gross can reach ~LEV*(1+beta) ~ 6.3; headroom
+            except Exception:
+                pass
+        self.q = qa.symbol
+        self.h = ha.symbol
+        # ---- TRAIN-only beta + 200d-MA warmup from PRE-OOS daily history (leak-free) ----
+        self.beta = 1.0
+        self.spread_lp = []               # cumulative spread log-return (warm-history + live)
+        try:
+            hist = self.history([self.q, self.h], datetime(2019, 1, 1), datetime(2023, 8, 1), Resolution.DAILY)
+            qc = hist.loc[self.q]["close"]
+            hc = hist.loc[self.h]["close"]
+            df = pd.concat([qc.rename("q"), hc.rename("h")], axis=1).dropna()
+            rq = np.diff(np.log(df["q"].values.astype(float)))
+            rh = np.diff(np.log(df["h"].values.astype(float)))
+            vh = float(np.var(rh))
+            self.beta = float(np.cov(rq, rh)[0, 1] / vh) if vh > 1e-12 else 1.0
+            self.spread_lp = list(np.cumsum(rq - self.beta * rh))   # warm the spread log-price
+        except Exception as e:
+            self.set_runtime_statistic("warm_err", str(e)[:50])
+        self.set_runtime_statistic("beta", str(round(self.beta, 4)))
+        self.set_runtime_statistic("warm_bars", str(len(self.spread_lp)))
+        self.prev_q = None
+        self.prev_h = None
+        self.cur_w = 0.0
+        self._eq = []
+        self._last_day = None
+        self.schedule.on(self.date_rules.every_day(self.q),
+                         self.time_rules.before_market_close(self.q, 1), self._rebalance)
+
+    def _rebalance(self):
+        now = self.time.date()
+        if now != self._last_day:
+            self._last_day = now
+            self._eq.append(float(self.portfolio.total_portfolio_value))
+        qp = float(self.securities[self.q].price)
+        hp = float(self.securities[self.h].price)
+        if qp <= 0 or hp <= 0:
+            return
+        if self.prev_q is not None and self.prev_q > 0 and self.prev_h > 0:
+            r_q = math.log(qp / self.prev_q)
+            r_h = math.log(hp / self.prev_h)
+            base = self.spread_lp[-1] if self.spread_lp else 0.0
+            self.spread_lp.append(base + (r_q - self.beta * r_h))
+        self.prev_q = qp
+        self.prev_h = hp
+        lp = self.spread_lp
+        if len(lp) < _L:
+            w = float(LEV)                                  # warmup (history makes this rare): hold the spread
+        else:
+            w = float(LEV) if lp[-1] > float(np.mean(lp[-_L:])) else 0.0   # 200-day-MA trend gate on the SPREAD
+        if abs(w - self.cur_w) > 0.01:
+            self.set_holdings(self.q, w)                    # long QQQ
+            self.set_holdings(self.h, -self.beta * w)       # short beta*SPY (cancels market-common gap)
+            self.cur_w = w
+
+    def on_end_of_algorithm(self):
+        da, peak = 0.0, None
+        for v in self._eq:
+            peak = v if (peak is None or v > peak) else peak
+            if peak and peak > 0:
+                da += 1.0 - v / peak
+        self.set_runtime_statistic("da_oos", str(round(da, 4)))
+        eq = np.array(self._eq, dtype=float)
+        if len(eq) > 4 and eq[0] > 0:
+            rets = np.diff(eq) / np.where(eq[:-1] == 0, np.nan, eq[:-1])
+            rets = rets[np.isfinite(rets)]
+            sd = float(np.std(rets, ddof=1)) if len(rets) > 3 else 0.0
+            if sd > 1e-12:
+                self.set_runtime_statistic("sharpe_oos", str(round(float(np.mean(rets)) / sd * (252.0 ** 0.5), 4)))
+            self.set_runtime_statistic("n_days", str(int(len(rets))))
+        self.quit("spread replay done")

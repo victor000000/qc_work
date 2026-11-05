@@ -25,9 +25,11 @@ def test_rust_comparison_ignores_only_optional_alias_not_actual_delivery_or_fill
 
 
 def actual_example():
-    import json
-    path=Path(__file__).parents[1]/'results/strangle_basket-calmar_20261019_182746/SSTRANGLE_20261019_182746_cap20_stop1_guard_rv12_exit21/orders.json'
-    return json.loads(path.read_text())[0]
+    # Synthetic native-order shape; no private account tape is required.
+    return dict(id=1, quantity=-2, status=3, securityType=2, tag='fixture:OPEN',
+        symbol=dict(id='HD 2Z43H5BGXLVAE|HD R735QTJ8XC9X', value='synthetic-put'),
+        groupOrderManager=dict(id=1), events=[dict(id='fixture-event', time=1577970000,
+        fillQuantity=-2, fillPrice=1.5, fillPriceCurrency='USD', orderFeeAmount=2)])
 
 
 @pytest.mark.parametrize('status',[3,'3','Filled',2,'PartiallyFilled'])
@@ -61,13 +63,11 @@ def test_partial_native_fill_is_preserved_as_partial_not_manufactured_complete()
     assert sum(r['quantity'] for r in actual)==order['quantity']/2
 
 
-def test_real_live_tail_snapshot_cannot_certify_zero_fills():
-    import json
+def test_live_tail_shape_cannot_certify_zero_fills():
     from qc_contracts import execution_rows
-    path=Path(__file__).parents[1]/'results/strangle_basket-calmar_20261019_204146/live_order_probe_20261019_2105/orders.rust.json'
-    orders=json.loads(path.read_text())
-    with pytest.raises(ValueError,match='lacks genuine fill events'):execution_rows(orders)
-
+    order=actual_example(); order['events']=[]
+    with pytest.raises(ValueError,match='lacks genuine fill events'):
+        execution_rows([order])
 
 
 def test_missing_fill_fee_is_not_assumed_zero():

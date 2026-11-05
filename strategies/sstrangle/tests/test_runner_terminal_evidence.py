@@ -9,18 +9,15 @@ spec=importlib.util.spec_from_file_location('strangle_runner_evidence',HERE/'run
 runner=importlib.util.module_from_spec(spec);spec.loader.exec_module(runner)
 
 
-def test_real_poll_transport_failure_does_not_verify_remote_completion():
-    path=HERE/'results/strangle_basket-calmar_20261019_204146/local_poll_interruption.json'
-    record=json.loads(path.read_text());record['result']={}
-    assert record['status']=='failed' and 'error sending request' in record['error_message']
+def test_poll_transport_failure_does_not_verify_remote_completion():
+    record=dict(project_id=42, backtest_id='synthetic-run', status='failed',
+                error_message='poll: error sending request', result={})
     assert runner.cloud_terminal_evidence(record) is None
 
 
 def completed_example():
-    campaign=HERE/'results/strangle_basket_20261018_191012'
-    payload=json.loads(next(campaign.glob('*/backtest.json')).read_text())
-    full=payload['backtest']
-    return dict(project_id=full['projectId'],backtest_id=full['backtestId'],result=payload,status='done')
+    return dict(project_id=42, backtest_id='synthetic-run', status='done',
+        result=dict(success=True, backtest=dict(projectId=42, backtestId='synthetic-run', completed=True)))
 
 
 def test_actual_full_terminal_identity_allows_terminal_collection():

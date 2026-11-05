@@ -4,10 +4,17 @@ from s001 import gen_s001_strategies as research
 from s001 import next_round_s001
 
 
-def test_moved_cohort_evidence_is_still_loaded():
-    assert research._load_dead_cohort_signatures()
-    assert research._load_productive_cohort_signatures()
-    assert research._load_silent_sec_sigs()
+def test_moved_cohort_evidence_is_still_loaded(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setattr(research, 'RESEARCH_DIR', tmp_path)
+    cohort = dict(parent='synthetic', sector=10, regimes=['up', 'down'], rate=.75)
+    for name in ['cohort_silent_signatures.json', 'cohort_productive_signatures.json']:
+        (tmp_path / name).write_text(json.dumps([cohort]))
+    (tmp_path / 'silent_sec_signatures.json').write_text(json.dumps([
+        dict(parent='synthetic', sector=10, regime_pair='up+down', gate_class='test')]))
+    assert research._load_dead_cohort_signatures() == {('synthetic', 10, ('down', 'up'))}
+    assert research._load_productive_cohort_signatures() == [dict(parent='synthetic', sector=10, regimes=('down', 'up'), rate=.75)]
+    assert research._load_silent_sec_sigs() == {('synthetic', 10, ('down', 'up'), 'test')}
 
 
 def test_round_id_uses_numeric_max_and_completed_history(tmp_path, monkeypatch):

@@ -1,0 +1,131 @@
+from AlgorithmImports import *
+import math
+import numpy as np
+import pandas as pd
+from datetime import datetime
+
+# CARRY-GATED TREND (2026-06-14): the trend_gate (deep-review #1) dodges QQQ's SLOW declines via its own
+# 200-day MA; this ADDS a YEN-CARRY veto to dodge the one remaining binding drawdown — the Aug-2024
+# carry-unwind FAST V-dip — which the trend MA can't react to but is foreseeable from a CROSS-ASSET signal
+# (FXY/yen strength spiked into it, leading from the late-July BoJ hike). Long QQQ at LEV only when ABOVE the
+# 200-day MA AND the yen is not spiking; flat otherwise. LEAK-FREE: 200-MA causal; FXY momentum causal; the
+# yen-spike threshold is fit on PRE-OOS daily history (frozen). Cross-asset FEATURE (FXY not traded) = in-rule.
+TICKER = "__TICKER__"      # QQQ
+CARRY = "__CARRY__"        # FXY (yen ETF — carry-unwind proxy)
+CARRY2 = "__CARRY2__"      # 2nd veto instrument (VXX vol-spike) or "NONE"
+LEV = __LEV__              # gross multiplier when long
+_L = __L__                 # SLOW trend MA (exit when below it)
+_LE = __LE__               # FAST entry MA (re-enter when above it; hysteresis band [_L,_LE])
+_CW = 5                    # FXY momentum window (days)
+_CQ = __CQ__               # TRAIN quantile of FXY momentum above which = yen spike -> veto
+
+
+class TrendCarry(QCAlgorithm):
+    def initialize(self):
+        self.set_start_date(2023, 8, 1)
+        self.set_end_date(2026, 7, 1)
+        self.set_cash(100000)
+        qa = self.add_equity(TICKER, Resolution.MINUTE, data_normalization_mode=DataNormalizationMode.RAW)
+        ca = self.add_equity(CARRY, Resolution.MINUTE, data_normalization_mode=DataNormalizationMode.RAW)
+        try:
+            self.set_brokerage_model(BrokerageName.INTERACTIVE_BROKERS_BROKERAGE, AccountType.CASH)
+        except Exception:
+            pass
+        self.q = qa.symbol
+        self.c = ca.symbol
+        self.c2 = None
+        if CARRY2 != "NONE":
+            self.c2 = self.add_equity(CARRY2, Resolution.MINUTE, data_normalization_mode=DataNormalizationMode.RAW).symbol
+        self.c2ret = []
+        self.c2_thr = 0.10
+        self.qlp = []          # QQQ log-price (warm-history + live)
+        self.cret = []         # FXY daily log-returns (warm + live)
+        self.carry_thr = 0.03
+        try:
+            hist = self.history([self.q, self.c], datetime(2019, 1, 1), datetime(2023, 8, 1), Resolution.DAILY)
+            qc = hist.loc[self.q]["close"]
+            cc = hist.loc[self.c]["close"]
+            df = pd.concat([qc.rename("q"), cc.rename("c")], axis=1).dropna()
+            ql = np.log(df["q"].values.astype(float))
+            cl = np.log(df["c"].values.astype(float))
+            self.qlp = list(ql)
+            crr = np.diff(cl)
+            self.cret = list(crr)
+            cmom = np.convolve(crr, np.ones(_CW), "valid")   # FXY _CW-day momentum (yen strength)
+            self.carry_thr = float(np.quantile(cmom, _CQ)) if len(cmom) > 20 else 0.03
+            if self.c2 is not None:
+                h2 = self.history([self.c2], datetime(2019, 1, 1), datetime(2023, 8, 1), Resolution.DAILY)
+                c2c = h2.loc[self.c2]["close"]
+                c2l = np.log(c2c.values.astype(float))
+                c2r = np.diff(c2l)
+                self.c2ret = list(c2r)
+                c2mom = np.convolve(c2r, np.ones(_CW), "valid")
+                self.c2_thr = float(np.quantile(c2mom, _CQ)) if len(c2mom) > 20 else 0.10
+        except Exception as e:
+            self.set_runtime_statistic("warm_err", str(e)[:50])
+        self.set_runtime_statistic("carry_thr", str(round(self.carry_thr, 4)))
+        self.set_runtime_statistic("warm_bars", str(len(self.qlp)))
+        self.prev_q = None
+        self.prev_c = None
+        self.cur_w = 0.0
+        self._eq = []
+        self._last_day = None
+        self.schedule.on(self.date_rules.every_day(self.q),
+                         self.time_rules.before_market_close(self.q, 1), self._rebalance)
+
+    def _rebalance(self):
+        now = self.time.date()
+        if now != self._last_day:
+            self._last_day = now
+            self._eq.append(float(self.portfolio.total_portfolio_value))
+        qp = float(self.securities[self.q].price)
+        cp = float(self.securities[self.c].price)
+        if qp <= 0 or cp <= 0:
+            return
+        if self.prev_q is not None and self.prev_q > 0:
+            self.qlp.append(math.log(qp))
+        if self.prev_c is not None and self.prev_c > 0:
+            self.cret.append(math.log(cp / self.prev_c))
+        if self.c2 is not None:
+            c2p = float(self.securities[self.c2].price)
+            if c2p > 0 and getattr(self, "_pc2", None) is not None and self._pc2 > 0:
+                self.c2ret.append(math.log(c2p / self._pc2))
+            self._pc2 = c2p if c2p > 0 else getattr(self, "_pc2", None)
+        self.prev_q = qp
+        self.prev_c = cp
+        ql = self.qlp
+        cr = self.cret
+        above_slow = (len(ql) >= _L and ql[-1] > float(np.mean(ql[-_L:])))     # above SLOW MA
+        above_fast = (len(ql) >= _LE and ql[-1] > float(np.mean(ql[-_LE:])))   # above FAST entry MA
+        carry_ok = True
+        if len(cr) >= _CW:
+            carry_ok = (float(sum(cr[-_CW:])) < self.carry_thr)            # yen NOT spiking
+        vol_ok = True
+        if self.c2 is not None and len(self.c2ret) >= _CW:
+            vol_ok = (float(sum(self.c2ret[-_CW:])) < self.c2_thr)         # vol (VXX) NOT spiking
+        risk_ok = carry_ok and vol_ok
+        if self.cur_w > 0.5:                      # currently long: HOLD until below the slow MA (ride the trend)
+            hold = above_slow and risk_ok
+        else:                                     # currently flat: RE-ENTER on the faster MA (catch recovery sooner)
+            hold = above_fast and risk_ok
+        w = min(1.0, float(LEV)) if hold else 0.0   # CASH: cap 100%, NO leverage
+        if abs(w - self.cur_w) > 0.01:
+            self.set_holdings(self.q, w)
+            self.cur_w = w
+
+    def on_end_of_algorithm(self):
+        da, peak = 0.0, None
+        for v in self._eq:
+            peak = v if (peak is None or v > peak) else peak
+            if peak and peak > 0:
+                da += 1.0 - v / peak
+        self.set_runtime_statistic("da_oos", str(round(da, 4)))
+        eq = np.array(self._eq, dtype=float)
+        if len(eq) > 4 and eq[0] > 0:
+            rets = np.diff(eq) / np.where(eq[:-1] == 0, np.nan, eq[:-1])
+            rets = rets[np.isfinite(rets)]
+            sd = float(np.std(rets, ddof=1)) if len(rets) > 3 else 0.0
+            if sd > 1e-12:
+                self.set_runtime_statistic("sharpe_oos", str(round(float(np.mean(rets)) / sd * (252.0 ** 0.5), 4)))
+            self.set_runtime_statistic("n_days", str(int(len(rets))))
+        self.quit("trendcarry replay done")

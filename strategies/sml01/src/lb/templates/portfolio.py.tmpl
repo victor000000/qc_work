@@ -1,0 +1,288 @@
+from AlgorithmImports import *
+import json
+import math
+import numpy as np
+from datetime import datetime
+
+# Wang's production-line ENDPOINT (⑨ model combination + ⑩ live): replay all 7
+# verified single-ETF CHAMPIONS simultaneously and combine them into ONE portfolio.
+# Each champion is replayed exactly as its solo infer does (saved predictions ->
+# _size at its own thresh+sizing), then scaled by an equal-capital weight 1/N so the
+# gross book stays <= 1 (no leverage). QC computes the real OOS portfolio equity ->
+# Compounding Annual Return / Drawdown -> portfolio Calmar. Diversification across
+# decorrelated ETF strategies should beat any single name on risk-adjusted return.
+# __CHAMPIONS__ = [[ticker, objectstore_cell_key], ...] injected at render time.
+_VOL_FAST = 10
+_VOL_SLOW = 60
+
+
+def _size(p, thresh, sizing, rbuf):
+    # FULL sizing engine — MUST mirror sizing_ext._size / infer.py._size / live_trade._size
+    # branch-for-branch (synced 2026-06-13; tests/test_size_parity.py enforces logic-identity
+    # across all four copies). Prior to the sync THIS copy was a SUBSET missing dd_overlay, so the
+    # GLD champion (dd_overlay) silently replayed as plain cdf in the book aggregate.
+    if sizing == "crashveto":
+        return 0.0 if p > thresh else 1.0
+    if sizing == "short_carry":
+        return 0.0 if p > thresh else -1.0
+    if sizing == "crashsoft":
+        lo = 0.5 * thresh
+        if p <= lo:
+            return 1.0
+        return float(max(0.0, (thresh - p) / (thresh - lo)))
+    if sizing == "crashlean":          # gentle continuous crash-de-risk: lean down proportional to p_crash, keep drift
+        return float(min(1.0, max(0.3, 1.0 - 1.5 * p)))
+    if sizing == "tilt_up":
+        if p <= thresh:
+            return 1.0
+        pp = min(max(p, 1e-6), 1.0 - 1e-6)
+        zu = (pp - thresh) / math.sqrt(pp * (1.0 - pp))
+        bu = 2.0 * 0.5 * (1.0 + math.erf(zu / math.sqrt(2.0))) - 1.0
+        return float(1.0 + 0.5 * min(1.0, max(0.0, bu)))
+    if sizing == "tilt":
+        return float(max(0.5, min(1.0, 0.5 + p)))
+    if sizing == "kelly_dd":
+        if p <= thresh:
+            return 0.0
+        return float(min(1.0, max(0.0, (2.0 * p - 1.0) / 1.857)))
+    if sizing == "longshort":
+        return 1.0 if p > thresh else (-1.0 if p < 1.0 - thresh else 0.0)
+    if sizing in ("ls_cdf", "ls_overlay"):
+        pp = min(max(p, 1e-6), 1.0 - 1e-6)
+        zc = (pp - 0.5) / math.sqrt(pp * (1.0 - pp))
+        w = float(min(1.0, max(-1.0, 2.0 * 0.5 * (1.0 + math.erf(zc / math.sqrt(2.0))) - 1.0)))
+        if sizing == "ls_overlay":
+            m = len(rbuf)
+            if m >= _VOL_FAST + 2:
+                fast = float(np.std(rbuf[-_VOL_FAST:]))
+                slow = float(np.std(rbuf[-min(m, _VOL_SLOW):]))
+                if fast > 1e-9:
+                    w *= float(min(1.0, max(0.45, slow / fast)))
+        return w
+    if sizing == "binary":
+        return 1.0 if p > thresh else 0.0
+    if sizing == "ramp":
+        return float(min(1.0, (p - thresh) * 200.0)) if p > thresh else 0.0
+    if sizing == "lever3":              # constant 3x leverage on the directional cdf bet; leak-free, leveraged
+        if p <= thresh:
+            return 0.0
+        pp = min(max(p, 1e-6), 1.0 - 1e-6)
+        z = (pp - thresh) / math.sqrt(pp * (1.0 - pp))
+        bb = 2.0 * 0.5 * (1.0 + math.erf(z / math.sqrt(2.0))) - 1.0
+        return float(min(3.0, 3.0 * max(0.0, bb)))
+    if p <= thresh:
+        return 0.0
+    pp = min(max(p, 1e-6), 1.0 - 1e-6)
+    z = (pp - thresh) / math.sqrt(pp * (1.0 - pp))
+    b = 2.0 * 0.5 * (1.0 + math.erf(z / math.sqrt(2.0))) - 1.0
+    b = float(min(1.0, max(0.0, b)))
+    if sizing == "cdf_overlay":
+        m = len(rbuf)
+        if m >= _VOL_FAST + 2:
+            fast = float(np.std(rbuf[-_VOL_FAST:]))
+            slow = float(np.std(rbuf[-min(m, _VOL_SLOW):]))
+            if fast > 1e-9:
+                b *= float(min(1.0, max(0.6, slow / fast)))
+    if sizing == "dd_overlay":
+        m = len(rbuf)
+        if m >= _VOL_FAST + 2:
+            win = np.asarray(rbuf[-min(m, _VOL_SLOW):], dtype=float)
+            cum = np.cumsum(win)
+            dd = float(cum[-1] - float(np.max(cum)))
+            ref = 3.0 * float(np.std(win)) * math.sqrt(len(win))
+            if ref > 1e-9:
+                b *= float(min(1.0, max(0.5, 1.0 + dd / ref)))
+    if sizing == "cond_es":
+        m = len(rbuf)
+        if m >= _VOL_FAST + 2:
+            ff = sorted(rbuf[-_VOL_FAST:])
+            ss = sorted(rbuf[-min(m, _VOL_SLOW):])
+            kf = max(1, int(0.2 * len(ff)))
+            ks = max(1, int(0.2 * len(ss)))
+            es_fast = -sum(ff[:kf]) / kf
+            es_slow = -sum(ss[:ks]) / ks
+            if es_fast > 1e-9 and es_slow > 0.0:
+                b *= float(min(1.0, max(0.4, es_slow / es_fast)))
+    if sizing == "ddbreaker":
+        m = len(rbuf)
+        if m >= _VOL_FAST + 2:
+            win = np.asarray(rbuf[-min(m, _VOL_SLOW):], dtype=float)
+            cum = np.cumsum(win)
+            dd = float(cum[-1] - float(np.max(cum)))
+            ref = 3.0 * float(np.std(win)) * math.sqrt(len(win))
+            if ref > 1e-9:
+                frac = 1.0 + dd / ref
+                b = 0.0 if frac < 0.4 else b * float(min(1.0, max(0.4, frac)))
+    if sizing == "voltarget":           # two-sided vol-target (risk-parity): lever up in calm, de-lever in stress
+        m = len(rbuf)
+        if m >= _VOL_FAST + 2:
+            fast = float(np.std(rbuf[-_VOL_FAST:]))
+            slow = float(np.std(rbuf[-min(m, _VOL_SLOW):]))
+            if fast > 1e-9:
+                b *= float(min(1.8, max(0.35, slow / fast)))
+    if sizing == "levervt":             # high-leverage two-sided vol-target (cap 4x, floor 0.2x); leak-free, leveraged
+        m = len(rbuf)
+        if m >= _VOL_FAST + 2:
+            fast = float(np.std(rbuf[-_VOL_FAST:]))
+            slow = float(np.std(rbuf[-min(m, _VOL_SLOW):]))
+            if fast > 1e-9:
+                b *= float(min(4.0, max(0.2, slow / fast)))
+    if sizing == "trend_gate":          # slow 200-bar (=200-day on `daily` axis) MA trend gate; leak-free
+        m = len(rbuf)
+        if m >= _VOL_FAST + 2:
+            fast = float(np.std(rbuf[-_VOL_FAST:]))
+            slow = float(np.std(rbuf[-min(m, _VOL_SLOW):]))
+            if fast > 1e-9:
+                b *= float(min(1.0, max(0.6, slow / fast)))
+        if m >= 200:
+            _lp = np.cumsum(np.asarray(rbuf, dtype=float))
+            if _lp[-1] <= float(np.mean(_lp[-200:])):
+                b = 0.0
+    if sizing == "trendlev":            # leveraged trend gate: 3x long above the 200-bar MA, flat below; leak-free, leveraged
+        m = len(rbuf)
+        if m >= 200:
+            _lp = np.cumsum(np.asarray(rbuf, dtype=float))
+            if _lp[-1] <= float(np.mean(_lp[-200:])):
+                return 0.0
+        return float(min(3.0, 3.0 * b))
+    if sizing == "trendlev_vt":         # vol-targeted leveraged trend gate: 3x above the 200-bar MA, de-levered in stress, flat below; leak-free
+        m = len(rbuf)
+        if m >= 200:
+            _lp = np.cumsum(np.asarray(rbuf, dtype=float))
+            if _lp[-1] <= float(np.mean(_lp[-200:])):
+                return 0.0
+        w = 3.0
+        if m >= _VOL_FAST + 2:
+            fast = float(np.std(rbuf[-_VOL_FAST:]))
+            slow = float(np.std(rbuf[-min(m, _VOL_SLOW):]))
+            if fast > 1e-9:
+                w *= float(min(1.0, max(0.2, slow / fast)))
+        return float(min(3.0, w * b))
+    if sizing == "trendlev_dd":         # 3x above the 200-bar MA, flat below, PLUS a fast drawdown circuit-breaker
+        m = len(rbuf)                   # (flat on frac<0.4) to cut the leveraged Aug-2024 fast-V-dip tail. Leak-free.
+        if m >= 200:
+            _lp = np.cumsum(np.asarray(rbuf, dtype=float))
+            if _lp[-1] <= float(np.mean(_lp[-200:])):
+                return 0.0
+        w = 3.0 * b
+        if m >= _VOL_FAST + 2:
+            win = np.asarray(rbuf[-min(m, _VOL_SLOW):], dtype=float)
+            cum = np.cumsum(win)
+            dd = float(cum[-1] - float(np.max(cum)))
+            ref = 3.0 * float(np.std(win)) * math.sqrt(len(win))
+            if ref > 1e-9:
+                frac = 1.0 + dd / ref
+                w = 0.0 if frac < 0.4 else w * float(min(1.0, max(0.3, frac)))
+        return float(min(3.0, w))
+    return b
+
+
+CHAMPIONS = __CHAMPIONS__       # [[ticker, cell_key, weight], ...] (weight normalised internally)
+LEVERAGE = __LEVERAGE__         # gross exposure multiplier (1.0 = fully-invested, no leverage)
+
+
+class AutoresearchPortfolio(QCAlgorithm):
+    def initialize(self):
+        self.set_start_date(2023, 8, 1)     # OOS window (matches every solo infer)
+        self.set_end_date(2026, 7, 1)
+        self.set_cash(100000)
+        self.books = {}
+        loaded = 0
+        tot_w = float(sum(max(0.0, float(c[2])) for c in CHAMPIONS)) or 1.0
+        for tk, key, wraw in CHAMPIONS:
+            sec = self.add_equity(tk, Resolution.MINUTE, data_normalization_mode=DataNormalizationMode.RAW)  # RAW: PIT + live-matching (leak audit 2026-06-07)
+            try:
+                sec.set_leverage(max(2.0, float(LEVERAGE) + 1.0))   # margin headroom for the gross target
+            except Exception:
+                pass
+            sym = sec.symbol
+            preds, thresh, sizing = [], 0.45, "cdf_overlay"
+            try:
+                data = json.loads(self.object_store.read("autoresearch/" + tk + "/" + key))
+                preds = data.get("predictions", [])
+                if data.get("thresh") is not None:
+                    thresh = float(data["thresh"])
+                if data.get("sizing"):
+                    sizing = str(data["sizing"])
+                if preds:
+                    loaded += 1
+            except Exception as e:
+                self.set_runtime_statistic("load_" + tk, str(e)[:40])
+            self.books[sym] = {"tk": tk, "preds": preds, "idx": 0, "thresh": thresh,
+                               "sizing": sizing, "rbuf": [], "last_close": None, "cur_w": 0.0,
+                               "w": (max(0.0, float(wraw)) / tot_w) * float(LEVERAGE)}   # gross = LEVERAGE
+        self.set_runtime_statistic("n_loaded", str(loaded))
+        self._eq = []
+        self._eqy = []        # calendar year of each daily equity sample (per-year robustness)
+        self._last_day = None
+
+    def on_data(self, slice):
+        now = self.time.date()
+        if now != self._last_day:
+            self._last_day = now
+            self._eq.append(float(self.portfolio.total_portfolio_value))
+            self._eqy.append(now.year)
+        for sym, bk in self.books.items():
+            if bk["idx"] >= len(bk["preds"]) or sym not in slice.bars:
+                continue
+            b = slice.bars[sym]
+            p = bk["preds"][bk["idx"]]
+            try:
+                pt = datetime.strptime(p["time"][:19], "%Y-%m-%dT%H:%M:%S")
+            except Exception:
+                pt = b.end_time
+            if b.end_time >= pt:
+                bk["idx"] += 1
+                w = bk["w"] * _size(float(p["pred"]), bk["thresh"], bk["sizing"], bk["rbuf"])
+                if abs(w - bk["cur_w"]) > 0.005:        # per-champion rebalance dead-band
+                    if abs(w) < 0.003:
+                        self.liquidate(sym)
+                        bk["cur_w"] = 0.0
+                    else:
+                        self.set_holdings(sym, w)
+                        bk["cur_w"] = w
+                c = float(b.close)
+                if bk["last_close"] is not None and bk["last_close"] > 0:
+                    bk["rbuf"].append(math.log(c / bk["last_close"]))
+                bk["last_close"] = c
+
+    def on_end_of_algorithm(self):
+        # Portfolio Calmar/DA/Sharpe computed from DAILY equity (robust — QC's Statistics
+        # dict is read intermittently; these runtime stats always land).
+        da, peak, mdd = 0.0, None, 0.0
+        for v in self._eq:
+            peak = v if (peak is None or v > peak) else peak
+            if peak and peak > 0:
+                dd = 1.0 - v / peak
+                da += dd
+                if dd > mdd:
+                    mdd = dd
+        self.set_runtime_statistic("port_da", str(round(da, 4)))
+        self.set_runtime_statistic("port_mdd", str(round(mdd, 4)))
+        eq = np.array(self._eq, dtype=float)
+        n = len(eq)
+        if n > 4 and eq[0] > 0:
+            cagr = float((eq[-1] / eq[0]) ** (252.0 / n) - 1.0)
+            self.set_runtime_statistic("port_cagr", str(round(cagr, 4)))
+            if mdd > 1e-9:
+                self.set_runtime_statistic("port_calmar", str(round(cagr / mdd, 4)))
+            rets = np.diff(eq) / np.where(eq[:-1] == 0, np.nan, eq[:-1])
+            rets = rets[np.isfinite(rets)]
+            if len(rets) > 4 and np.std(rets) > 0:
+                self.set_runtime_statistic("port_sharpe",
+                                           str(round(float(np.mean(rets) / np.std(rets) * np.sqrt(252)), 3)))
+                self.set_runtime_statistic("port_ndays", str(len(rets)))
+        # Per-year STABILITY (robustness): return + maxDD per calendar year — is the
+        # Calmar consistent, or driven by one lucky period?
+        for yr in sorted(set(self._eqy)):
+            seg = [self._eq[i] for i in range(len(self._eq)) if self._eqy[i] == yr]
+            if len(seg) < 5 or seg[0] <= 0:
+                continue
+            r = seg[-1] / seg[0] - 1.0
+            pk, ymdd = None, 0.0
+            for v in seg:
+                pk = v if (pk is None or v > pk) else pk
+                if pk and pk > 0 and (1.0 - v / pk) > ymdd:
+                    ymdd = 1.0 - v / pk
+            self.set_runtime_statistic("y" + str(yr), "ret=" + str(round(100 * r, 1)) + "% mdd=" + str(round(100 * ymdd, 1)) + "%")
+        self.quit("portfolio replay done")

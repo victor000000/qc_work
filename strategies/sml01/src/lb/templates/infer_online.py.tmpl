@@ -1,0 +1,248 @@
+TICKER = "__TICKER__"
+CELL = "__CELL__"
+_WARMUP = 820           # >= max feature window (800) + margin
+_TRAIL = 840            # bars of trailing history fed to build_feats (>= _WARMUP)
+_XSTRIDE = 5            # cross-check every Nth OOS bar (build_feats is the bottleneck). Tightened
+                        # 20->5 (leak audit 2026-06-07): 4x more OOS prediction coverage per run.
+
+
+class OnlineInferXCheck(QCAlgorithm):
+    """Frozen-model ONLINE OOS replica + cross-check. Replays the 2009->2026 feed,
+    builds bars ONLINE from the saved frozen threshold, computes features on a trailing
+    window (identical last-row to the full-history build), runs the FROZEN booster +
+    isotonic online, and asserts p_live == p_saved (the train's saved predictions) to
+    prove the online path reproduces the batch one. NOTHING is refit here."""
+
+    def initialize(self):
+        self.set_start_date(2009, 8, 1)
+        self.set_end_date(2026, 7, 1)
+        self.set_cash(100000)
+        self.sym = self.add_equity(TICKER, Resolution.MINUTE, data_normalization_mode=DataNormalizationMode.RAW).symbol  # RAW: must match footer/infer (leak audit 2026-06-07)
+        self.cll = []
+        self.vll = []
+        self.tsl = []
+        self.blc = []        # per-bar log-close (online)
+        self.diffs = []      # |p_live - p_saved| over matched OOS bars
+        self.n_live = 0
+        self.n_oos_seen = 0  # every post-warmup OOS bar (coverage denominator)
+        self.n_sampled = 0   # OOS bars that passed the _XSTRIDE subsample
+        self.n_unmatched = 0 # sampled online OOS bars with NO saved pred (bar-SET divergence signal)
+        self.featlen_bad = False  # feature-vector length drift -> FATAL
+        self.ok = True
+        try:
+            mb = json.loads(self.object_store.read("autoresearch/" + TICKER + "/model_" + CELL + ".json"))
+            cell = json.loads(self.object_store.read("autoresearch/" + TICKER + "/cell_" + CELL + ".json"))
+        except Exception as e:
+            self.set_runtime_statistic("xerr", "load:" + str(e)[:60])
+            self.ok = False
+            return
+        self.mb = mb
+        self.constant_long = bool(mb.get("constant_long"))
+        self.vend = np.datetime64(mb.get("val_end"))
+        self.tend = np.datetime64(mb.get("test_end"))
+        bt = mb.get("bar_type")
+        cls = BUILDER_CLASSES.get(bt) if not self.constant_long else None
+        if not self.constant_long and cls is None:
+            self.set_runtime_statistic("xerr", "no_builder:" + str(bt))
+            self.ok = False
+            return
+        self.builder = cls(float(mb["bar_thresh"])) if cls is not None else None
+        if not self.constant_long:
+            self.nfeat = int(mb.get("n_features", 0) or 0)
+            # ENSEMBLE (the deployed real edges GLD trend_leg+regime_gmm / UUP bgm+ker) OR single-labeler.
+            # Load EACH member; the online prediction AVERAGES the members' calibrated+gated probs (mirrors the
+            # footer's ensemble + live_trade.py.tmpl), so p_live reproduces the saved ENSEMBLE prediction. Without
+            # this, ensemble bundles ({"ensemble":True,"members":[...]}, no top-level booster) raised KeyError and
+            # the deployed ensemble champions' online-equivalence was unprovable (2026-06-03 audit finding #1).
+            raw_members = mb["members"] if mb.get("ensemble") else [mb]
+            self.members = [self._load_member(b) for b in raw_members]
+            self.set_runtime_statistic("n_members", str(len(self.members)))
+        # saved predictions keyed by bar timestamp (for the cross-check)
+        self.saved = {}
+        for p in cell.get("predictions", []):
+            self.saved[str(p.get("time"))[:19].replace(" ", "T")] = float(p.get("pred"))
+
+    def _load_member(self, b):
+        fam = b.get("family", "xgb")
+        if fam == "xgb":
+            booster = xgb.Booster()
+            booster.load_model(bytearray(b["booster"], "utf-8"))
+        elif fam == "lgbm":
+            import lightgbm as _lgbm
+            booster = _lgbm.Booster(model_str=b["booster"])
+        elif fam == "logit":
+            import json as _json
+            booster = _json.loads(b["booster"])
+        elif fam in ("lgbm_bag", "xgb_bag"):
+            import json as _json
+            strs = _json.loads(b["booster"])
+            if fam == "lgbm_bag":
+                import lightgbm as _lgbm
+                booster = [_lgbm.Booster(model_str=s) for s in strs]
+            else:
+                booster = []
+                for s in strs:
+                    bb = xgb.Booster()
+                    bb.load_model(bytearray(s, "utf-8"))
+                    booster.append(bb)
+        else:
+            raise ValueError("unknown bundle family " + str(fam))
+        m = {"mean": np.array(b["scaler_mean"], dtype=float),
+             "scale": np.array(b["scaler_scale"], dtype=float),
+             "kept": np.array(b["kept_idx"], dtype=int),
+             "reduce_tf": b.get("reduce_tf"),
+             "family": fam,
+             "cal_x": np.array(b.get("cal_x", []), dtype=float),
+             "cal_y": np.array(b.get("cal_y", []), dtype=float),
+             "best_iter": int(b.get("best_iter", 0) or 0),
+             "booster": booster, "is_meta": bool(b.get("meta")), "meta_booster": None, "meta_gate": 0.0}
+        if m["is_meta"]:
+            mbst = xgb.Booster()
+            mbst.load_model(bytearray(b["meta_booster"], "utf-8"))
+            m["meta_booster"] = mbst
+            m["meta_gate"] = float(b.get("meta_gate", 0.0))
+        return m
+
+    def _raw_predict(self, m, x2d):
+        fam = m["family"]
+        if fam == "xgb":
+            dm = xgb.DMatrix(x2d)
+            if m["best_iter"] > 0:
+                return float(m["booster"].predict(dm, iteration_range=(0, m["best_iter"] + 1))[0])
+            return float(m["booster"].predict(dm)[0])
+        if fam == "lgbm":
+            return float(m["booster"].predict(x2d)[0])
+        if fam == "logit":
+            z = float(np.dot(x2d[0], np.array(m["booster"]["coef"])) + m["booster"]["intercept"])
+            return float(1.0 / (1.0 + math.exp(-z)))
+        if fam == "lgbm_bag":
+            return float(sum(bb.predict(x2d)[0] for bb in m["booster"]) / len(m["booster"]))
+        tot = 0.0                                     # xgb_bag
+        for bb in m["booster"]:
+            tot += float(bb.predict(xgb.DMatrix(x2d))[0])
+        return tot / len(m["booster"])
+
+    def _predict_member(self, m, row):
+        x = (row - m["mean"]) / m["scale"]
+        tf = m["reduce_tf"]
+        if tf:
+            x32 = x.astype(np.float32)                # match the torch/sklearn float32 train path
+            if tf["kind"] == "pca":
+                x = (x32 - np.array(tf["mean"], dtype=np.float32)) @ np.array(tf["comp"], dtype=np.float32).T
+            else:                                     # vae mu-encode forward pass (numpy == torch)
+                h = np.tanh(x32 @ np.array(tf["w1"], dtype=np.float32).T + np.array(tf["b1"], dtype=np.float32))
+                x = h @ np.array(tf["wm"], dtype=np.float32).T + np.array(tf["bm"], dtype=np.float32)
+        else:
+            x = x[m["kept"]]
+        x2d = np.asarray(x, dtype=float).reshape(1, -1)
+        praw = self._raw_predict(m, x2d)
+        p = float(np.interp(praw, m["cal_x"], m["cal_y"])) if len(m["cal_x"]) >= 2 else praw
+        if m["is_meta"]:                              # meta GATE: flatten where the secondary distrusts the primary
+            pmeta = float(m["meta_booster"].predict(xgb.DMatrix(x2d))[0])
+            if pmeta < 0.5:
+                p = m["meta_gate"]
+        return p
+
+    def on_data(self, slice):
+        if not self.ok or self.constant_long or self.sym not in slice.bars:
+            return
+        b = slice.bars[self.sym]
+        self.cll.append(float(b.close))
+        self.vll.append(float(b.volume))
+        self.tsl.append(b.end_time)
+        bar = self.builder.update(b.end_time, float(b.close), float(b.volume))
+        if bar is None:
+            return
+        self.blc.append(float(bar["log_close"]))
+        norm = str(b.end_time)[:19].replace(" ", "T")
+        t64 = np.datetime64(norm)
+        if not (self.vend <= t64 < self.tend):     # OOS-window emission only
+            return
+        if len(self.blc) < _WARMUP:
+            return
+        self.n_oos_seen += 1                        # coverage denominator (all post-warmup OOS bars)
+        self._oc = getattr(self, "_oc", 0) + 1      # cross-check a subsample (speed)
+        if self._oc % _XSTRIDE != 0:
+            return
+        self.n_sampled += 1
+        lc = np.array(self.blc[-_TRAIL:], dtype=float)
+        lr = np.zeros_like(lc)
+        lr[1:] = lc[1:] - lc[:-1]
+        abs_start = len(self.blc) - len(lc)        # absolute index of lc[0] -> anchored entropy grid
+        try:
+            feats = build_feats(lc, lr, abs_start=abs_start)
+        except Exception:
+            return
+        row = feats[-1]
+        if np.isnan(row).any():
+            return
+        if self.nfeat and len(row) != self.nfeat:
+            self.featlen_bad = True                 # FATAL (was non-fatal): feature-vector length drift
+            self.set_runtime_statistic("featlen_mismatch", str(len(row)) + "vs" + str(self.nfeat))
+        # AVERAGE the members' calibrated+gated probs (single-labeler => 1 member; mirrors footer ensemble + live).
+        pmem = [self._predict_member(m, row) for m in self.members]
+        plive = float(np.mean(pmem))
+        psaved = self.saved.get(norm)
+        if psaved is not None:
+            d = abs(plive - psaved)
+            self.diffs.append(d)
+            self.n_live += 1
+            if len(self.diffs) <= 1:                 # sample the first matched pair
+                self.set_runtime_statistic("sample_live", str(round(plive, 5)))
+                self.set_runtime_statistic("sample_saved", str(round(psaved, 5)))
+            if d > 0.01:                             # mismatch forensics: first 3 diverging bars
+                self._nmm = getattr(self, "_nmm", 0) + 1
+                if self._nmm <= 3:
+                    self.set_runtime_statistic(
+                        "mm" + str(self._nmm),
+                        norm + " saved=" + str(round(psaved, 4)) + " live=" + str(round(plive, 4))
+                        + " mem=" + ",".join(str(round(p, 4)) for p in pmem))
+                    # feature forensics: per-member top-|z| standardized columns + raw score
+                    for mi, m in enumerate(self.members):
+                        xz = (row - m["mean"]) / m["scale"]
+                        xk = xz[m["kept"]] if m.get("reduce_tf") is None else xz
+                        order = np.argsort(-np.abs(xk))[:3]
+                        cols = ",".join(
+                            "f" + str(int(m["kept"][int(j)]) if m.get("reduce_tf") is None else int(j))
+                            + "=" + str(round(float(xk[int(j)]), 2)) for j in order)
+                        praw_dbg = self._raw_predict(m, np.asarray(
+                            xk if m.get("reduce_tf") is None else xz, dtype=float).reshape(1, -1))
+                        nr_dbg = m["booster"].num_boosted_rounds() if m["family"] == "xgb" else -1
+                        self.set_runtime_statistic(
+                            "mm" + str(self._nmm) + "_m" + str(mi),
+                            "raw=" + str(round(praw_dbg, 4)) + " bi=" + str(m["best_iter"])
+                            + " rounds=" + str(nr_dbg) + " " + cols)
+        else:
+            self.n_unmatched += 1                    # sampled online OOS bar with NO saved pred -> bar-set divergence
+
+    def on_end_of_algorithm(self):
+        if not self.ok:
+            return
+        if self.constant_long:
+            self.set_runtime_statistic("constant_long", "1")
+            self.quit("constant_long cell — no model to cross-check")
+            return
+        n = len(self.diffs)
+        maxd = max(self.diffs) if self.diffs else -1.0
+        n_saved = len(self.saved)
+        # HARDENED gate (leak audit 2026-06-07). preds_match now also requires: NO feature-length
+        # drift; FULL coverage of the sampled OOS bars (every sampled online bar matched a saved pred,
+        # so a bar-SET / timestamp divergence can no longer be silently inner-joined away); and a
+        # non-trivial sample. bars_count_match exposes any gross online-vs-batch OOS bar-count drift.
+        bars_count_match = 1 if (n_saved > 0 and abs(self.n_oos_seen - n_saved) <= 2) else 0
+        coverage_ok = (self.n_sampled > 0 and self.n_unmatched <= 2)  # tolerate <=2 benign OOS-boundary bars (maxdiff is the real gate); n_unmatched==0 false-flagged clean champions
+        match = 1 if (n > 0 and maxd <= 1e-6 and (not self.featlen_bad) and coverage_ok) else 0
+        n_big = sum(1 for d in self.diffs if d > 0.01)
+        meand = (sum(self.diffs) / n) if n else -1.0
+        self.set_runtime_statistic("preds_match", str(match))
+        self.set_runtime_statistic("n_matched", str(n))
+        self.set_runtime_statistic("n_big_gt01", str(n_big))
+        self.set_runtime_statistic("mean_diff", str(round(meand, 6)))
+        self.set_runtime_statistic("n_saved", str(n_saved))
+        self.set_runtime_statistic("n_oos_seen", str(self.n_oos_seen))
+        self.set_runtime_statistic("n_sampled", str(self.n_sampled))
+        self.set_runtime_statistic("n_unmatched", str(self.n_unmatched))
+        self.set_runtime_statistic("bars_count_match", str(bars_count_match))
+        self.set_runtime_statistic("featlen_bad", str(int(self.featlen_bad)))
+        self.set_runtime_statistic("max_pred_diff", str(round(maxd, 9)))
+        self.quit("online-infer cross-check done")

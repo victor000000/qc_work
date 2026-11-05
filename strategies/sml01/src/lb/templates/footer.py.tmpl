@@ -1,0 +1,869 @@
+"""Footer — SCIENTIFIC axis x labeling sweep, run in on_end_of_algorithm.
+
+For the axis(es) named by AXIS (header) and EACH labeler in the LABELERS registry
+we run a FIXED downstream pipeline and save that (axis,label) cell's TEST-period
+predictions to ObjectStore. REAL Calmar comes from a separate infer backtest
+(templates/infer.py.tmpl) that replays these predictions with real SetHoldings.
+
+FIXED downstream (identical for every cell — do NOT vary):
+    build_feats  ->  StandardScaler  ->  reduce_dims(correlation, 20)
+    ->  XGBoost(max_depth=3, learning_rate=0.03, n_estimators=200,
+                scale_pos_weight=class_balance)
+    ->  isotonic calibration (fit on VAL)
+    ->  realistic_cstats on VAL  (synthetic selection metric)
+
+reduce_dims / realistic_cstats are reused from trainer.py (globals at runtime).
+
+THRESHOLD CONSISTENCY: a single per-ETF threshold is chosen per cell, used for
+synthetic selection AND saved in the cell payload, so infer applies the SAME
+threshold (fixes the historical train/infer threshold mismatch).
+
+Cell payload key:   autoresearch/{TICKER}/cell_{axis}_{label}.json
+  -> {ticker, axis, label, cfg, thresh, predictions}
+Manifest key:       autoresearch/{TICKER}/manifest.json
+  -> {ticker, cells: [{key, axis, label, synth_cal, train_auc, val_auc, n_trades}], ...}
+"""
+
+
+def _put(s, k, v):
+    """A rejected ObjectStore write must not count as a saved cell or model."""
+    if not s.save(k, v):
+        raise RuntimeError(f"Cannot save {k}")
+
+
+def _cell_threshold(ticker):
+    """Per-ETF entry threshold (consistent across synth selection AND infer)."""
+    if ticker in ["XLE"]:
+        return 0.10
+    if ticker == "QQQ":
+        return 0.15
+    if ticker in ["HYG", "TLT"]:
+        return 0.55
+    if ticker == "GLD":
+        return 0.35
+    return 0.45
+
+
+# Render-time sizing for ONE hypothesis. The SAME _size() rule runs here (VAL,
+# inside _cstats_sized) and in the infer template (OOS), keyed by CONFIG['sizing'].
+# rbuf = trailing bar log-returns KNOWN at this bar (causal; only the overlay uses it).
+# Sizing engine moved VERBATIM to sizing_ext.py (2026-06-10, the 64k wall — see that
+# module's docstring). CONFIG injected for _cstats_sized's rebal_band/aim_a reads.
+try:
+    import sizing_ext as _sx
+except ImportError:
+    from lb.modules import sizing_ext as _sx
+_sx.CONFIG = CONFIG
+_size = _sx._size
+_cstats_sized = _sx._cstats_sized
+try:
+    import ml_ext as _mx
+except ImportError:
+    from lb.modules import ml_ext as _mx
+_MERR = []  # model-fit error stash, surfaced as runtime stat (lgbm debug)
+
+class AutoresearchPipeline(QCAlgorithm):
+    def initialize(self):
+        self.set_start_date(2009, 8, 1)
+        self.set_end_date(2026, 7, 1)
+        self.set_cash(100000)
+        # RAW data normalization (leak audit 2026-06-07): QC's default Adjusted back-adjusts using the
+        # ENTIRE split/dividend history (future corporate actions => level look-ahead) and differs live.
+        # RAW is point-in-time + live-matching (dividends credited as cash, splits adjust share qty).
+        # MUST match across footer/infer/infer_online/verify/live_trade/portfolio (train==online==live).
+        self.sym = self.add_equity(TICKER, Resolution.MINUTE, data_normalization_mode=DataNormalizationMode.RAW).symbol
+        self.spy = self.add_equity(CROSS_ASSET, Resolution.MINUTE, data_normalization_mode=DataNormalizationMode.RAW).symbol
+        self.tsl = []
+        self.cll = []
+        self.vll = []
+        self.spy_cll = []  # SPY close prices for cross-asset features
+        # EXOGENOUS YIELD channel (2026-06-09 direction; opt-in features="realyield").
+        # GUARDED: every line below is inert unless the mode is on, so the champion path and
+        # every other experiment stay byte-identical. gold <- nominal 10y yield level + 2s10s
+        # slope, from the QC-native US Treasury Yield Curve (USTYCR), the add_data wrapped in
+        # try/except so an unsubscribed/absent dataset degrades to off instead of breaking the run.
+        self._realyield = (CONFIG.get("features") == "realyield")
+        self._vix = (CONFIG.get("features") == "vix")
+        self._oilbasis = (CONFIG.get("features") == "oilbasis")
+        self._ob_fifo = []   # (date, log spot) pends; promoted at >=7 calendar days (pub-lag safe)
+        self.ry_cll = []   # 1-day-lagged REAL 10y yield level, co-indexed with primary bars
+        self.sl_cll = []   # 1-day-lagged 2s10s slope, co-indexed with primary bars
+        self._ry_act = None; self._ry_pend = None
+        self._sl_act = None; self._sl_pend = None
+        self._y10 = None; self._y2 = None
+        self._ry_day = None
+        if self._realyield:
+            try:
+                # FRED DFII10 (10y TIPS REAL yield) + DGS10-DGS2 slope (R1861; nominal lost R1860).
+                self.ry_sym = self.add_data(Fred, "DFII10").symbol
+                self.t10_sym = self.add_data(Fred, "DGS10").symbol
+                self.t2_sym = self.add_data(Fred, "DGS2").symbol
+            except Exception:
+                self._realyield = False   # dataset unavailable -> degrade (never breaks the run)
+        if self._oilbasis:
+            try:
+                # FRED spot WTI (cash commodity, NOT an ETF price): the ry channel carries
+                # log(spot); realized basis drift vs USO's own bars = the contango state.
+                self.ry_sym = self.add_data(Fred, "DCOILWTICO").symbol
+            except Exception:
+                self._oilbasis = False
+        if self._vix:
+            try:
+                # VXX (VIX short-term futures ETN — user 2026-06-11: use the tradeable
+                # ETN, NOT the CBOE index dataset). Plain equity OHLCV; market price is
+                # causal in-slice (no publication lag needed). ry carrier = log(close).
+                self.ry_sym = self.add_equity("VXX", Resolution.MINUTE).symbol
+            except Exception:
+                self._vix = False
+
+    def on_data(self, slice):
+        # Daily FRED points emit in their OWN slice (no primary bar) -> MUST read BEFORE
+        # the primary-bar gate (the R1854/R1859 "zero data" was this ordering bug).
+        if self._realyield:
+            try:
+                if slice.contains_key(self.ry_sym):
+                    _v = slice[self.ry_sym]
+                    if _v is not None and _v.value is not None:
+                        self._ry_pend = float(_v.value)                 # DFII10 real 10y level
+                if slice.contains_key(self.t10_sym):
+                    _v = slice[self.t10_sym]
+                    if _v is not None and _v.value is not None:
+                        self._y10 = float(_v.value)
+                if slice.contains_key(self.t2_sym):
+                    _v = slice[self.t2_sym]
+                    if _v is not None and _v.value is not None:
+                        self._y2 = float(_v.value)
+                if self._y10 is not None and self._y2 is not None:
+                    self._sl_pend = self._y10 - self._y2      # 2s10s slope
+            except Exception:
+                pass
+        if self._oilbasis:
+            try:
+                if slice.contains_key(self.ry_sym):
+                    _v = slice[self.ry_sym]
+                    if _v is not None and _v.value is not None and float(_v.value) > 0:
+                        self._ob_fifo.append((self.time.date(), math.log(float(_v.value))))
+            except Exception:
+                pass
+        if self._vix:
+            try:
+                if self.ry_sym in slice.bars:
+                    _vb = slice.bars[self.ry_sym]
+                    if _vb is not None and float(_vb.close) > 0:
+                        self._ry_act = math.log(float(_vb.close))
+            except Exception:
+                pass
+        if self.sym not in slice.bars:
+            return
+        b = slice.bars[self.sym]
+        self.tsl.append(b.end_time)
+        self.cll.append(float(b.close))
+        self.vll.append(float(b.volume))
+        if self.spy in slice.bars:
+            self.spy_cll.append(float(slice.bars[self.spy].close))
+        else:
+            self.spy_cll.append(self.spy_cll[-1] if self.spy_cll else 0.0)
+        if self._oilbasis:
+            try:
+                _d = b.end_time.date()
+                while self._ob_fifo and (_d - self._ob_fifo[0][0]).days >= 7:
+                    self._ry_act = self._ob_fifo.pop(0)[1]
+            except Exception:
+                pass
+            self.ry_cll.append(self._ry_act if self._ry_act is not None else float("nan"))
+            self.sl_cll.append(float("nan"))
+        if self._realyield:
+            # Promote pends only on calendar-day advance => >=1-day lag on top of QC's t+1
+            # emission (publication-causal). Appends OUTSIDE try: co-indexed with cll.
+            try:
+                _d = b.end_time.date()
+                if self._ry_day is not None and _d != self._ry_day:
+                    if self._ry_pend is not None:
+                        self._ry_act = self._ry_pend
+                    if self._sl_pend is not None:
+                        self._sl_act = self._sl_pend
+                self._ry_day = _d
+            except Exception:
+                pass
+            self.ry_cll.append(self._ry_act if self._ry_act is not None else float("nan"))
+            self.sl_cll.append(self._sl_act if self._sl_act is not None else float("nan"))
+        if self._vix:
+            # log(VXX) at/before this primary bar — causal market data, co-indexed.
+            self.ry_cll.append(self._ry_act if self._ry_act is not None else float("nan"))
+            self.sl_cll.append(float("nan"))
+
+    # --------------------------------------------------------------------- #
+    # FIXED downstream pipeline for one (axis, labeler) cell.               #
+    # Returns (synth_cal, cfg, train_auc, val_auc, n_trades, test_preds)    #
+    # or None when the cell cannot be trained.                             #
+    # --------------------------------------------------------------------- #
+    def _run_cell(self, feats, y, label_cfg, tr_m, va_m, te_m, lc, lr, bar_ts, fv,
+                  thresh, sizing="cdf_overlay", meta=False, ae=False, label_reach=None):
+        try:
+            from sklearn.preprocessing import StandardScaler
+            from sklearn.metrics import roc_auc_score
+            import xgboost as xgb
+        except ImportError:
+            return None
+
+        # ---- NO-LOOKAHEAD INVARIANT (G3) ----------------------------------- #
+        # The label y is future-derived. It MAY filter the bars used to FIT the
+        # model/calibrator (training on future labels is allowed). It must NEVER
+        # decide WHICH out-of-sample bars get a position — doing so picks trades
+        # with hindsight. So: fit on labeled bars; but emit VAL-synth + TEST
+        # predictions for EVERY causal bar (fv & mask), no future-label filter.
+        ly = y >= 0
+        # EMBARGO (purge): labels use up to ~200 forward bars, so val bars within
+        # H of the val/test boundary carry EARLY-TEST returns. They must not enter
+        # the calibrator/model fit (would bleed test info). Drop them from the FIT
+        # sets only; the model is train-fit and TRAIN labels can't reach test (val
+        # is years wide >> H), so only the val->test boundary needs the embargo.
+        # LEAK FIX (2026-06-04 leak-hunt): the embargo MUST cover the full forward-label
+        # horizon, else a CONFIG['horizons'] override > 200 bars bleeds test labels into the
+        # cal.fit/eval_set. Built-in labeler horizons max at 200; this is horizon-aware.
+        # STRUCTURAL FIX (2026-06-06): also CONSUME the labeler's DECLARED forward reach
+        # (the 3rd return value, plumbed in as label_reach). Smoothing/decoding labelers can
+        # out-reach max(horizons) (dc_reversal/tlb_reversal next-event reach=200; a future
+        # wide-smoother could declare >200) — coupling it here means the embargo can never be
+        # silently out-reached by a new labeler. None/0 reach is a no-op (the 200 floor holds).
+        _EMBARGO = max(200, int(max(CONFIG.get("horizons") or [0])), int(label_reach or 0))
+        _allidx = np.arange(len(y))
+        _tepos = np.where(te_m)[0]
+        emb = (_allidx < (_tepos[0] - _EMBARGO)) if len(_tepos) else np.ones(len(y), dtype=bool)
+        tx = fv & ly & tr_m                 # train: labeled bars only (model fit)
+        if CONFIG.get("train_purge"):       # SYMMETRIC TRAIN->VAL purge (default OFF -> byte-identical):
+            _trp = np.where(tr_m)[0]        # drop the last _EMBARGO train bars whose forward labels reach
+            if len(_trp):                   # into early VAL (mirror of the val->test embargo). leak audit C16.
+                tx = tx & (_allidx <= (_trp[-1] - _EMBARGO))
+        y_fit = y                           # permuted-label control: shuffle ONLY the TRAIN
+        if CONFIG.get("permute_labels"):    # labels the model fits on (test still enters via
+            y_fit = y.copy()                # predict only -> leak-safe). Preserves class balance,
+            _tri = np.where(tx)[0]          # so scale_pos_weight/n_pos/n_neg are unchanged.
+            y_fit[_tri] = np.random.RandomState(1234).permutation(y[_tri])
+        vx_lab = fv & ly & va_m & emb       # val labeled, EMBARGOED: calibrator fit + val_auc
+        vx = fv & va_m                      # val ALL causal bars: synth metric
+        ex = fv & te_m                      # test ALL causal bars: OOS preds (no label filter)
+        if tx.sum() < 200 or vx_lab.sum() < 30 or ex.sum() < 30:
+            return None
+
+        # FIXED: StandardScaler -> correlation reduce_dims(20). (fit on TRAIN only)
+        sc = StandardScaler()
+        Xt_raw = sc.fit_transform(feats[tx])
+        Xv_raw = sc.transform(feats[vx])
+        Xe_raw = sc.transform(feats[ex])
+        Xt, Xv, Xe, nk, dim_name, kept_idx = reduce_dims(
+            Xt_raw, Xv_raw, Xe_raw,
+            method=("autoencoder" if ae else CONFIG.get("reduce", "correlation")),
+            n_components=int(CONFIG.get("n_components", 20)),
+            y_train=y[tx].astype(int))   # TRAIN labels for Wang INFORMATION-GAIN selection (leak-safe: TRAIN-only)
+
+        vi = np.where(vx)[0]
+        ei = np.where(ex)[0]
+        vlab = ly[vi] & emb[vi]             # labeled, EMBARGOED subset within the ALL-val bars (aligns with vx_lab)
+        n_pos = int(y[tx].sum())
+        n_neg = int((1 - y[tx]).sum())
+
+        if CONFIG.get("labeler") == "survival_aft" and n_pos > 0 and n_neg > 0:
+            # ⚠️ QC-PLATFORM-BLOCKED (deep-v2 B1, 2026-06-08): xgb.train(objective='survival:aft')
+            # C-CRASHES QC's XGBoost runtime (uncatchable Runtime Error, empty logs) — like the
+            # extratrees branch. Kept for documentation/future-platforms; disabled in VALID_LABELERS.
+            # SURVIVAL/AFT branch (deep-v2 B1): NEW speed-of-payoff mechanism. Train XGBoost's
+            # NATIVE survival:aft objective on the time-to-upper-barrier intervals (uncensored
+            # [t,t]; right-censored [H,inf)) from labeler.SURVIVAL_BOUNDS. The model predicts a
+            # time-to-barrier; conviction = monotone-decreasing map (short time => strong long),
+            # normalized by the TRAIN median time. Bypasses the classifier + isotonic; pv_cal/pe_cal
+            # ARE the conviction (a pseudo-probability fed to the SAME _size()/threshold/sizing).
+            try:
+                _lo = np.asarray(SURVIVAL_BOUNDS["lower"], dtype=float)
+                _up = np.asarray(SURVIVAL_BOUNDS["upper"], dtype=float)
+                _lo_t = _lo[tx].copy()
+                _up_t = _up[tx].copy()
+                if CONFIG.get("permute_labels"):     # falsification: shuffle the intervals (paired)
+                    _pi = np.random.RandomState(1234).permutation(len(_lo_t))
+                    _lo_t = _lo_t[_pi]
+                    _up_t = _up_t[_pi]
+                # right-censored upper is +inf in AFT theory, but XGBoost's C AFT kernel can
+                # ABORT on inf (uncatchable) -> use a large finite sentinel (>> any real H).
+                _BIG = 1.0e6
+                _lo_t = np.clip(np.nan_to_num(_lo_t, nan=1.0, posinf=_BIG), 1.0, _BIG)
+                _up_t = np.clip(np.nan_to_num(_up_t, nan=_BIG, posinf=_BIG), 1.0, _BIG)
+                dtr = xgb.DMatrix(Xt)
+                dtr.set_float_info("label_lower_bound", _lo_t)   # version-robust API
+                dtr.set_float_info("label_upper_bound", _up_t)
+                _sp = {"objective": "survival:aft",
+                       "aft_loss_distribution": "normal", "aft_loss_distribution_scale": 1.0,
+                       "max_depth": int(CONFIG.get("max_depth", 3)), "eta": 0.03,
+                       "tree_method": "hist", "seed": 42}
+                bst = xgb.train(_sp, dtr, num_boost_round=200)
+                _tt = bst.predict(xgb.DMatrix(Xt))
+                _tv = bst.predict(xgb.DMatrix(Xv))
+                _te = bst.predict(xgb.DMatrix(Xe))
+                _fin = _tt[np.isfinite(_tt) & (_tt > 0)]
+                _sc = float(np.median(_fin)) if _fin.size else 1.0
+                if not np.isfinite(_sc) or _sc <= 0:
+                    _sc = 1.0
+                pv_cal = 1.0 / (1.0 + np.clip(_tv, 0.0, None) / _sc)   # short time -> ~1
+                pe_cal = 1.0 / (1.0 + np.clip(_te, 0.0, None) / _sc)
+                try:
+                    train_auc = float(roc_auc_score(y[tx], 1.0 / (1.0 + np.clip(_tt, 0.0, None) / _sc)))
+                    val_auc = float(roc_auc_score(y[vx_lab], (1.0 / (1.0 + np.clip(_tv, 0.0, None) / _sc))[vlab]))
+                except ValueError:
+                    train_auc = val_auc = 0.5
+            except Exception:
+                return None
+        elif n_pos == 0 or n_neg == 0:
+            # Single-class baseline (e.g. always_long): bypass the model with a
+            # constant long signal == buy-and-hold. No fit, no AUC.
+            pv_cal = np.ones(len(vi))
+            pe_cal = np.ones(len(ei))
+            train_auc = val_auc = 0.5
+        else:
+            # XGBoost lr0.03 / n200 / scale_pos_weight. depth defaults to 3 (shallow,
+            # regularized); CONFIG['max_depth'] can override for capacity A/B (leak-safe
+            # hyperparameter — train/val/embargo logic unchanged).
+            # NOTE: a CONFIG['model']='extratrees' branch was tried (2026-06-03) — sklearn
+            # ExtraTrees ERRORS in QC's on_end_of_algorithm runtime (platform-blocked, even
+            # bounded to 200 trees/depth12). XGBoost is the QC-supported learner. Reverted.
+            scale_w = n_neg / max(1, n_pos)
+            _md = int(CONFIG.get("max_depth", 3))
+            try:
+                # model family swap (xgb default / lgbm) lives in ml_ext.fit_model
+                # (64k budget); capacity-matched, depth>3 stays closed.
+                m, _fe = _mx.fit_model(CONFIG.get("model", "xgb"), Xt, y_fit[tx],
+                                       Xv[vlab], y[vx_lab], scale_w, _md)
+                _MERR.extend(_fe)
+            except Exception as _fe2:
+                _MERR.append(type(_fe2).__name__ + ":" + str(_fe2)[:70])
+                return None
+            pt_raw = m.predict_proba(Xt)[:, 1]
+            pv_raw = m.predict_proba(Xv)[:, 1]        # ALL val bars
+            pe_raw = m.predict_proba(Xe)[:, 1]        # ALL test bars
+            try:
+                train_auc = float(roc_auc_score(y[tx], pt_raw))
+                val_auc = float(roc_auc_score(y[vx_lab], pv_raw[vlab]))  # labeled val only
+            except ValueError:
+                train_auc = 0.5
+                val_auc = 0.5
+            # FIXED: isotonic calibration, fit on labeled VAL; applied to ALL bars.
+            # CONFIG['calibration']=='venn_abers' (deep-v2 B4) swaps in Inductive Venn-Abers
+            # (better-calibrated multiprobability); default 'isotonic' is byte-identical legacy.
+            try:
+                _cs = np.clip(pv_raw[vlab], 1e-6, 1 - 1e-6)
+                _cy = y[vx_lab]
+                pv_cal, pe_cal, cal = _mx.calibrate(
+                    CONFIG.get("calibration"), _cs, _cy, pv_raw, pe_raw, _sx._venn_abers)
+            except Exception:
+                pv_cal, pe_cal = pv_raw, pe_raw
+
+        _meta_booster_json = None      # set when the meta secondary is built -> carried in the online bundle
+        _meta_gate = None
+        # META-LABELING (Wang's "trading-decision secondary model" / AFML Ch.3): a
+        # SECONDARY model predicts whether the PRIMARY's directional call is correct,
+        # and shrinks the primary signal toward neutral where the secondary distrusts
+        # it -> higher precision, fewer false trades. Honest meta-labels need OOS
+        # primary preds, so the primary is re-fit over 3 contiguous PURGED folds of
+        # TRAIN to score each train bar out-of-sample. Any failure -> primary-only (no-op).
+        if meta and n_pos > 0 and n_neg > 0:
+            try:
+                ytx = y[tx]
+                idx_tx = np.where(tx)[0]                  # full-N positions (time-sorted)
+                ntr = len(idx_tx)
+                oos_pt = np.full(ntr, np.nan)
+                K = 3
+                bnd = [int(ntr * f / K) for f in range(K + 1)]
+                for kf in range(K):
+                    a, b = bnd[kf], bnd[kf + 1]
+                    if b - a < 20:
+                        continue
+                    keep = np.ones(ntr, dtype=bool)
+                    keep[a:b] = False                    # hold out this contiguous fold
+                    purge = (idx_tx >= idx_tx[a] - _EMBARGO) & (idx_tx <= idx_tx[b - 1] + _EMBARGO)
+                    keep = keep & ~purge                 # purge label-overlapping bars near the fold
+                    if keep.sum() < 100 or len(np.unique(ytx[keep])) < 2:
+                        continue
+                    swk = float(np.sum(ytx[keep] == 0)) / max(1, int(np.sum(ytx[keep] == 1)))
+                    mk = _mx.xgb_plain(swk)
+                    mk.fit(Xt[keep], ytx[keep])
+                    oos_pt[a:b] = mk.predict_proba(Xt[a:b])[:, 1]
+                ok = ~np.isnan(oos_pt)
+                meta_y = ((oos_pt[ok] >= 0.5).astype(int) == ytx[ok]).astype(int)
+                if int(ok.sum()) > 200 and len(np.unique(meta_y)) == 2:
+                    swm = float(np.sum(meta_y == 0)) / max(1, int(np.sum(meta_y == 1)))
+                    ms = _mx.xgb_plain(swm)
+                    ms.fit(Xt[ok], meta_y)
+                    pmeta_v = ms.predict_proba(Xv)[:, 1]
+                    pmeta_e = ms.predict_proba(Xe)[:, 1]
+                    # META GATE (AFML): FLATTEN the bar where the secondary predicts the
+                    # primary is wrong (p_meta < 0.5); keep the primary signal otherwise.
+                    # Only ever REMOVES trades (raising precision) — never adds. The
+                    # neutral value that _size flattens to differs by sizing: 0.5 for
+                    # long/short (centred), 0.0 for long-only (below any entry thresh).
+                    _gate = 0.5 if str(sizing).startswith("ls") else 0.0
+                    pv_cal = np.where(pmeta_v >= 0.5, np.asarray(pv_cal), _gate)
+                    pe_cal = np.where(pmeta_e >= 0.5, np.asarray(pe_cal), _gate)
+                    _meta_booster_json = ms.get_booster().save_raw("json").decode("utf-8")
+                    _meta_gate = float(_gate)
+                    self.log(f"META {label_cfg}: oos={int(ok.sum())} meta_acc={float(meta_y.mean()):.3f} "
+                             f"kept_test={float(np.mean(pmeta_e >= 0.5)):.3f}")
+            except Exception as _me:
+                try:
+                    self.set_runtime_statistic("meta_err", str(_me)[:60])
+                except Exception:
+                    pass
+
+        # MODEL BUNDLE — frozen artifacts so the OOS backtest can run the model ONLINE
+        # (not replay predictions). Bar params (axis/threshold) added by the caller.
+        # Guarded; constant_long cells (always_long) carry no model. (online OOS redesign)
+        try:
+            if ae or (meta and _meta_booster_json is None):
+                _bundle = None        # AE (placeholder kept_idx) or meta-without-secondary -> no online bundle
+            elif n_pos == 0 or n_neg == 0:
+                _bundle = {"constant_long": True, "thresh": float(thresh), "sizing": sizing,
+                           "rebal_band": float(CONFIG["rebal_band"]),
+                           "train_end": str(TRAIN_END), "val_end": str(VAL_END), "test_end": str(TEST_END)}
+            else:
+                _cal = locals().get("cal")
+                _cx = getattr(_cal, "X_thresholds_", None)
+                _cy = getattr(_cal, "y_thresholds_", None)
+                _bundle = {"constant_long": False, "thresh": float(thresh), "sizing": sizing,
+                           "rebal_band": float(CONFIG["rebal_band"]),
+                           # Absolute (2009-origin) axis-bar index of the FIRST OOS/test bar. The entropy
+                           # stride-grid in build_feats is anchored at the full-series origin (abs_start=0),
+                           # so live_trade.py — which warms from only ~220d of history, NOT 2009 — needs this
+                           # to reconstruct the correct grid phase and feed the frozen model the SAME entropy
+                           # value it was trained on (leak audit 2026-06-07; live-fidelity finding). Metadata
+                           # only: infer.py/infer_online.py/verify.py ignore it and are unaffected.
+                           "oos_start_abs": (int(np.where(te_m)[0][0]) if bool(np.any(te_m)) else 0),
+                           "scaler_mean": [float(x) for x in sc.mean_],
+                           "scaler_scale": [float(x) for x in sc.scale_],
+                           "kept_idx": [int(i) for i in kept_idx],
+                           # frozen projection transform for online reproduce (pca/vae cells;
+                           # None => selection reduce, online uses kept_idx as before)
+                           "reduce_tf": (_mx.LAST_TRANSFORM if CONFIG.get("reduce") in ("pca", "vae") else None),
+                           # family-safe serialization lives in ml_ext (Lean can't catch
+                           # cross-API AttributeErrors in try/except — run d61ec92).
+                           "booster": _mx.serialize_model(m)[1],
+                           "family": _mx.serialize_model(m)[0],
+                           "best_iter": int(getattr(m, "best_iteration", 0) or 0),
+                           "n_features": int(len(sc.mean_)),
+                           "cal_x": (_cx.tolist() if _cx is not None else []),
+                           "cal_y": (_cy.tolist() if _cy is not None else []),
+                           "train_end": str(TRAIN_END), "val_end": str(VAL_END), "test_end": str(TEST_END)}
+                if meta and _meta_booster_json is not None:
+                    # META champion: carry the SECONDARY model + gate so infer_online can
+                    # reproduce the gated signal live (same scaler/kept_idx feed both models).
+                    _bundle["meta"] = True
+                    _bundle["meta_booster"] = _meta_booster_json
+                    _bundle["meta_gate"] = float(_meta_gate)
+        except Exception as _be:
+            _bundle = None
+            try:
+                self.set_runtime_statistic("hb_bundle_err", str(_be)[:80])
+            except Exception:
+                pass
+        try:
+            self.set_runtime_statistic("hb_bundle", "built" if _bundle is not None else "none")
+        except Exception:
+            pass
+
+        # VAL "middle" metrics over ALL causal val bars (honest OOS preview), at the
+        # SAME thresh+sizing infer executes with (no train/infer mismatch).
+        synth_cal, n_trades, _, _, _, val_da = _cstats_sized(
+            pv_cal[:-1], lc[vi][:-1], lr[vi][1:], thresh, sizing)
+
+        # TEST-period predictions over ALL causal test bars (replayed by infer at
+        # the SAME thresh). NO future-label selection -> no look-ahead.
+        test_preds = _pred_list(pe_cal[:-1], lc[ei][:-1],
+                                np.zeros_like(lc)[ei][:-1], bar_ts[ei][:-1])
+        # LEAK SENTINEL (checked every round): preds MUST cover every causal test
+        # bar. n_pred << n_test_bars => a labeler is selecting OOS bars by the
+        # future label again (the bug fixed 2026-06-01). Echoed as runtime stats.
+        try:
+            self.set_runtime_statistic("n_test_bars", str(int(ex.sum())))
+            self.set_runtime_statistic("n_pred", str(len(test_preds)))
+            if _MERR:
+                self.set_runtime_statistic("model_err", _MERR[-1][:80])
+        except Exception:
+            pass
+        cfg = f"{label_cfg}_corr{nk}_xgbd3_iso"
+        return (float(synth_cal), cfg, train_auc, val_auc, int(n_trades),
+                test_preds, float(val_da), _bundle)
+
+    def on_end_of_algorithm(self):
+        close = np.array(self.cll)
+        vol = np.array(self.vll)
+        ts_arr = np.array(self.tsl)
+
+        try:
+            axis_registry = AXES
+        except NameError:
+            axis_registry = {"dollar": None}
+
+        # HYPOTHESIS MODE: CONFIG fully specifies the cell -> build ONLY CONFIG['axis']
+        # and run ONLY CONFIG['labeler'] as ONE cell (no registry sweep), sizing with
+        # CONFIG['sizing'] + CONFIG['thresh']. Active only when BOTH axis and labeler
+        # were substituted (back-compat: literal placeholders -> full sweep below).
+        cfg_axis = CONFIG.get("axis")
+        cfg_label = CONFIG.get("labeler")
+        cfg_thresh = CONFIG.get("thresh")
+        sizing = CONFIG.get("sizing") or "cdf_overlay"
+        hypo_mode = (cfg_axis in axis_registry) and bool(cfg_label)
+        if hypo_mode:
+            thresh = float(cfg_thresh) if (cfg_thresh is not None and cfg_thresh == cfg_thresh) \
+                else _cell_threshold(TICKER)
+            axes = [cfg_axis]
+            only_label = cfg_label
+        else:
+            thresh = _cell_threshold(TICKER)
+            sizing = "cdf_overlay"
+            only_label = None
+            # Single substituted axis, or ALL axes if AXIS left literal.
+            axes = [AXIS] if AXIS in axis_registry else list(axis_registry.keys())
+
+        cells = []                # manifest entries
+        best_da = 1e18            # selection: MIN val Drawdown Area (Wang's val metric)
+        best_cal = 0.0
+        best_tauc = 0.0
+        best_vauc = 0.0
+        best_axis = axes[0] if axes else "dollar"
+        best_key = None
+
+        for axis in axes:
+            try:
+                lc, lr, N, bar_ts = build_bars(
+                    close, vol, ts_arr, bar_type=axis, target_bars=TARGET_BARS)
+            except NameError:
+                continue
+            if N == 0:
+                continue
+
+            # Cross-asset secondary FEATURE series (single-ticker: we TRADE only TICKER).
+            # CLEAN sample (2026-06-06): take the secondary's close at EACH PRIMARY bar-close minute
+            # directly off the minute grid (self.spy_cll is co-indexed with ts_arr), instead of
+            # rebuilding secondary bars on the primary's volume/jump axis with UNIT volume — that
+            # axis-rebuild distorted the secondary's OWN dynamics (the reason VXX/UUP/XOP cross-asset
+            # feats underperformed: a vol/dollar series resampled on the primary's clock loses its
+            # signal). bar_ts is a subset of ts_arr, so each primary bar takes the secondary close at
+            # its OWN close minute. Causal/leak-safe: only the secondary close at/<= the bar close.
+            try:
+                spy_close = np.array(self.spy_cll, dtype=float)
+                if len(spy_close) == len(ts_arr) and len(spy_close) > 0:
+                    _mins = np.array([np.datetime64(str(t)) for t in ts_arr])
+                    _pbts = np.array([np.datetime64(str(t)) for t in bar_ts])
+                    _midx = np.clip(np.searchsorted(_mins, _pbts, side="right") - 1, 0, len(spy_close) - 1)
+                    # secondary close AT each primary bar close. CAUSAL forward-fill of missing/zero
+                    # minutes (carry last valid forward only) — NO bfill: backward-fill would seed
+                    # LEADING bars (before the secondary's first valid close) with FUTURE values =
+                    # look-ahead leak (2026-06-08 leak audit). Leading bars with no causal secondary
+                    # value get the PRIMARY's own close -> term-structure (lc-spy_lc) ~ 0 = neutral, causal.
+                    _scs = pd.Series(spy_close[_midx].astype(float))
+                    _scs[_scs <= 0] = np.nan
+                    _scs = _scs.ffill()                              # causal: past/current only
+                    _sc = _scs.to_numpy()
+                    _lead = ~np.isfinite(_sc)                        # leading bars: no prior valid secondary close
+                    if _lead.any():
+                        _sc = np.where(_lead, np.exp(lc), _sc)       # causal neutral (primary's own close; NO future secondary)
+                    _sc = np.maximum(_sc, 1e-9)
+                    spy_lc = np.log(_sc)
+                    spy_lr = np.concatenate([[0.0], np.diff(spy_lc)])
+                else:
+                    spy_lc = None
+                    spy_lr = None
+            except Exception:
+                spy_lc = None
+                spy_lr = None
+
+            # EXOGENOUS REAL-YIELD as-of join (guarded). SAME causal searchsorted + ffill as the
+            # cross-asset block above; NO bfill — leading bars before the first FRED read stay NaN
+            # and are dropped by the feature-validity mask, never future-seeded. The 1-day lag is
+            # already applied at accumulation time. ry = DFII10 level, sl = DGS10-DGS2 slope.
+            ry = None
+            sl = None
+            if self._realyield or self._oilbasis or self._vix:
+                try:
+                    ry_min = np.array(self.ry_cll, dtype=float)
+                    sl_min = np.array(self.sl_cll, dtype=float)
+                    if len(ry_min) == len(ts_arr) and len(ry_min) > 0:
+                        _rmins = np.array([np.datetime64(str(t)) for t in ts_arr])
+                        _rpbts = np.array([np.datetime64(str(t)) for t in bar_ts])
+                        _ridx = np.clip(np.searchsorted(_rmins, _rpbts, side="right") - 1, 0, len(ry_min) - 1)
+                        ry = pd.Series(ry_min[_ridx]).ffill().to_numpy()   # causal: past/current only
+                        sl = pd.Series(sl_min[_ridx]).ffill().to_numpy()
+                except Exception:
+                    ry = None
+                    sl = None
+            # ROBUSTNESS + DIAGNOSTIC (2026-06-09): if FRED real-yield data did NOT flow
+            # (subscription absent / slice-read API mismatch), ry is all-NaN -> appending it
+            # would NaN every feature row and drop ALL bars (the 0-trades trap we just hit).
+            # Record how many bars carried a real-yield value (visible in the QC report), and
+            # FALL BACK to base features when too few are valid, so the leg still trains and
+            # A==B then cleanly signals "real-yield did not engage" instead of a phantom 0-trades.
+            if ry is not None:
+                _nv = int(np.isfinite(ry).sum())
+                try:
+                    self.set_runtime_statistic("ry_valid_" + str(axis), str(_nv) + "/" + str(len(ry)))
+                except Exception:
+                    pass
+                if _nv < max(300, len(ry) // 2):
+                    ry = None
+                    sl = None
+
+            bar_ts_np = np.array([np.datetime64(str(t)) for t in bar_ts])
+            tr_m = bar_ts_np < np.datetime64(TRAIN_END)
+            va_m = (bar_ts_np >= np.datetime64(TRAIN_END)) & (bar_ts_np < np.datetime64(VAL_END))
+            te_m = (bar_ts_np >= np.datetime64(VAL_END)) & (bar_ts_np < np.datetime64(TEST_END))
+            try:
+                self.set_runtime_statistic("dbg_bars_" + str(axis),
+                    str(int(N)) + "/" + str(int(tr_m.sum())) + "/" + str(int(va_m.sum())) + "/" + str(int(te_m.sum())))
+            except Exception:
+                pass
+            if tr_m.sum() < 500 or va_m.sum() < 50 or te_m.sum() < 50:
+                continue
+
+            # --- ONLINE-BARS VERIFY (guarded; never breaks training): persist this
+            # axis's FROZEN threshold + the batch OOS bars so verify.py can rebuild
+            # them ONLINE from the saved threshold and prove byte-identical. Scalar-
+            # threshold axes only (entropy/fracdiff need extra fitted params).
+            try:
+                if axis in BUILDER_CLASSES:
+                    _vb = _make_builder(axis, close, vol, ts_arr, TARGET_BARS)
+                    _vthr = builder_threshold(_vb) if _vb is not None else None
+                    if _vthr is not None:
+                        _put(self.object_store, "autoresearch/" + TICKER + "/oosbars_" + axis + ".json",
+                            json.dumps({"bar_type": axis, "bar_thresh": float(_vthr),
+                                        "target_bars": int(TARGET_BARS), "n_oos_batch": int(te_m.sum()),
+                                        "val_end": str(VAL_END), "test_end": str(TEST_END),
+                                        "oos_bar_ts": [str(t)[:19].replace(" ", "T") for t, m in zip(bar_ts, te_m) if m],
+                                        "oos_bar_lc": [float(x) for x in lc[te_m]]}))
+            except Exception:
+                pass
+
+            _rich = (CONFIG.get("features") == "rich")
+            _ts = (CONFIG.get("features") == "termstruct")
+            _evt = (CONFIG.get("features") == "evt")
+            _disp = (CONFIG.get("features") == "disp")
+            _sig = (CONFIG.get("features") == "sig")
+            _wr = (CONFIG.get("features") == "wangrich")
+            _realyield = self._realyield
+            _ob = self._oilbasis
+            _regime = (CONFIG.get("features") == "regime")
+            try:
+                feats = build_feats(lc, lr, spy_lc, spy_lr, rich=_rich, termstruct=_ts, evt=_evt, disp=_disp, sig=_sig, ry=ry, sl=sl, realyield=_realyield, wangrich=_wr, oilbasis=_ob, regime=_regime, vix=self._vix)
+            except NameError:
+                continue
+            except TypeError:
+                feats = build_feats(lc, lr, rich=_rich)
+            feats = _mx.extra_feats(CONFIG.get("features"), feats, lc, lr, bar_ts_np, self.object_store)
+            fv = ~np.isnan(feats).any(axis=1)
+            _hz = CONFIG.get("horizons")     # intraday-holding override (in BARS); None => labeler defaults
+            if _hz:
+                fwd_ret, fwd_vol = compute_forward_metrics(lc, lr, horizons=_hz)
+            else:
+                fwd_ret, fwd_vol = compute_forward_metrics(lc, lr)
+
+            # Hypothesis mode -> ONLY CONFIG['labeler']; else sweep the full registry.
+            try:
+                labeler_registry = LABELERS
+            except NameError:
+                labeler_registry = {}
+            # ⑦ ENSEMBLE: a "+"-joined labeler (e.g. "triple_barrier+bgm") trains EACH
+            # sub-labeler's model and AVERAGES their calibrated TEST predictions. All
+            # labelers emit preds over the SAME causal test bars (ex = fv & te_m), so the
+            # lists align by index. Decorrelated signals -> lower joint drawdown.
+            ens_parts = None
+            if only_label is not None:
+                if "+" in only_label:
+                    ens_parts = [p for p in only_label.split("+") if p in labeler_registry]
+                    labeler_registry = {p: labeler_registry[p] for p in ens_parts}
+                else:
+                    labeler_registry = ({only_label: labeler_registry[only_label]}
+                                        if only_label in labeler_registry else {})
+            _ens_preds, _ens_tauc, _ens_vauc, _ens_bundles = [], [], [], []
+            for label_name, label_fn in labeler_registry.items():
+                _reach = None     # labeler's DECLARED forward reach (3rd return) -> feeds _EMBARGO
+                try:
+                    if _hz:
+                        y, label_cfg, _reach = label_fn(
+                            lc, lr, tr_m, va_m, te_m, fv, fwd_ret, fwd_vol, horizons=_hz)
+                    else:
+                        y, label_cfg, _reach = label_fn(
+                            lc, lr, tr_m, va_m, te_m, fv, fwd_ret, fwd_vol)
+                except Exception:
+                    y = None
+                    label_cfg = f"{label_name}_error"
+                if y is None:
+                    continue
+
+                try:
+                    res = self._run_cell(feats, y, label_cfg or label_name,
+                                         tr_m, va_m, te_m, lc, lr, bar_ts, fv, thresh,
+                                         sizing, meta=str(label_name).endswith("_meta"),
+                                         ae=str(label_name).endswith("_ae"), label_reach=_reach)
+                except Exception:
+                    res = None                  # a failing leg must not crash the whole train
+                if res is None:
+                    continue
+                synth_cal, cfg, train_auc, val_auc, n_trades, test_preds, val_da, _bundle = res
+                if test_preds is None or len(test_preds) == 0:
+                    continue
+                if ens_parts is not None:           # collect for averaging, don't save per-leg
+                    _ens_preds.append(test_preds)
+                    _ens_tauc.append(train_auc)
+                    _ens_vauc.append(val_auc)
+                    _ens_bundles.append(_bundle)     # sub-model bundle for the ONLINE ensemble (live deploy)
+                    continue
+                aucdiv = abs(train_auc - val_auc)
+
+                key = f"autoresearch/{TICKER}/cell_{axis}_{label_name}_{sizing}_t{int(round(thresh*100))}{_PSUF}.json"
+                # Per-cell train/val metrics saved in the payload so the infer
+                # backtest can echo them as runtime stats (the driver can't read
+                # ObjectStore) and the per-round report has everything per cell.
+                _put(self.object_store, key, json.dumps({
+                    "ticker": TICKER,
+                    "axis": axis,
+                    "label": label_name,
+                    "cfg": cfg,
+                    "thresh": thresh,
+                    "sizing": sizing,
+                    "rebal_band": float(CONFIG["rebal_band"]),
+                    "synth_cal": round(synth_cal, 4),
+                    "val_da": round(val_da, 4),
+                    "train_auc": round(train_auc, 4),
+                    "val_auc": round(val_auc, 4),
+                    "n_trades": n_trades,
+                    "predictions": test_preds,
+                }))
+                # MODEL BUNDLE (online OOS backtest): frozen model + bar params, saved
+                # next to the cell as model_*.json. Scalar-threshold single-labeler axes
+                # only (infer v1 scope). Guarded — never breaks the cell save above.
+                try:
+                    if _bundle is not None and axis in BUILDER_CLASSES:
+                        _mb = _make_builder(axis, close, vol, ts_arr, TARGET_BARS)
+                        _bthr = builder_threshold(_mb) if _mb is not None else None
+                        if _bthr is not None:
+                            _bundle["bar_type"] = axis
+                            _bundle["bar_thresh"] = float(_bthr)
+                            _bundle["target_bars"] = int(TARGET_BARS)
+                            _put(self.object_store, key.replace("/cell_", "/model_"), json.dumps(_bundle))
+                            try:
+                                self.set_runtime_statistic("hb_model_saved", "1")
+                            except Exception:
+                                pass
+                except Exception as _se:
+                    try:
+                        self.set_runtime_statistic("hb_save_err", str(_se)[:80])
+                    except Exception:
+                        pass
+                cells.append({
+                    "key": key,
+                    "axis": axis,
+                    "label": label_name,
+                    "synth_cal": round(synth_cal, 4),
+                    "val_da": round(val_da, 4),
+                    "train_auc": round(train_auc, 4),
+                    "val_auc": round(val_auc, 4),
+                    "aucdiv": round(aucdiv, 4),
+                    "n_trades": n_trades,
+                })
+                # Pointer selection: MIN val DA among non-overfit cells (AUCdiv<0.05),
+                # overfit cells penalized so they only win if nothing else exists.
+                score = val_da if aucdiv < 0.05 else val_da + 1e6
+                if score < best_da:
+                    best_da = score
+                    best_cal = synth_cal
+                    best_tauc = train_auc
+                    best_vauc = val_auc
+                    best_axis = axis
+                    best_key = key
+                self.log(f"CELL {axis}_{label_name}: val_da={round(val_da,4)} "
+                         f"synth_cal={round(synth_cal,4)} train_auc={round(train_auc,4)} "
+                         f"val_auc={round(val_auc,4)} aucdiv={round(aucdiv,4)} n_trades={n_trades}")
+
+            # ⑦ ENSEMBLE: average the sub-labelers' calibrated TEST predictions (index-aligned,
+            # same ex bars). Save ONE cell keyed by the "+"-joined name (matches the driver's
+            # cell string + infer CELL), so infer replays the averaged signal.
+            if ens_parts is not None and len(_ens_preds) >= 2:
+                ml = min(len(p) for p in _ens_preds)
+                ens_list = []
+                for i in range(ml):
+                    avg_p = sum(float(pp[i]["pred"]) for pp in _ens_preds) / len(_ens_preds)
+                    ens_list.append({"time": _ens_preds[0][i]["time"],
+                                     "pred": float(avg_p), "above_ma": True})
+                e_tauc = sum(_ens_tauc) / len(_ens_tauc)
+                e_vauc = sum(_ens_vauc) / len(_ens_vauc)
+                ename = "+".join(ens_parts)
+                ekey_name = ename.replace("+", "_x_")   # ObjectStore key: no '+' (path-safe), matches driver
+                ekey = f"autoresearch/{TICKER}/cell_{axis}_{ekey_name}_{sizing}_t{int(round(thresh*100))}{_PSUF}.json"
+                _put(self.object_store, ekey, json.dumps({
+                    "ticker": TICKER, "axis": axis, "label": ename, "cfg": f"ensemble_{ename}",
+                    "thresh": thresh, "sizing": sizing, "rebal_band": float(CONFIG["rebal_band"]), "synth_cal": 0.0, "val_da": 0.0,
+                    "train_auc": round(e_tauc, 4), "val_auc": round(e_vauc, 4),
+                    "n_trades": len(ens_list), "predictions": ens_list,
+                }))
+                cells.append({"key": ekey, "axis": axis, "label": ename, "synth_cal": 0.0,
+                              "val_da": 0.0, "train_auc": round(e_tauc, 4), "val_auc": round(e_vauc, 4),
+                              "aucdiv": round(abs(e_tauc - e_vauc), 4), "n_trades": len(ens_list)})
+                # ENSEMBLE ONLINE BUNDLE (2026-06-03): save the sub-model bundles + bar params so the live/
+                # online path can reproduce the AVERAGED calibrated prediction online (load each member, run it,
+                # average). Without this, ensemble champions (the real edges: GLD ker+regime_gmm, UUP bgm+ker) had
+                # NO online bundle and could not be live-deployed. Guarded; never breaks the cell save above.
+                try:
+                    _mem = [b for b in _ens_bundles if (b is not None and "booster" in b and not b.get("constant_long"))]
+                    if len(_mem) >= 2 and axis in BUILDER_CLASSES:
+                        _emb = _make_builder(axis, close, vol, ts_arr, TARGET_BARS)
+                        _ebthr = builder_threshold(_emb) if _emb is not None else None
+                        if _ebthr is not None:
+                            _eb = {"ensemble": True, "constant_long": False, "members": _mem,
+                                   "thresh": float(thresh), "sizing": sizing, "rebal_band": float(CONFIG["rebal_band"]),
+                                   "bar_type": axis, "bar_thresh": float(_ebthr), "target_bars": int(TARGET_BARS),
+                                   "n_features": int(_mem[0].get("n_features", 0) or 0),
+                                   "oos_start_abs": (int(np.where(te_m)[0][0]) if bool(np.any(te_m)) else 0),  # entropy-grid phase for live_trade (see _bundle)
+                                   "val_end": str(VAL_END), "test_end": str(TEST_END)}
+                            _put(self.object_store, ekey.replace("/cell_", "/model_"), json.dumps(_eb))
+                            try:
+                                self.set_runtime_statistic("hb_ens_bundle", str(len(_mem)))
+                            except Exception:
+                                pass
+                except Exception as _ee:
+                    try:
+                        self.set_runtime_statistic("hb_ens_bundle_err", str(_ee)[:80])
+                    except Exception:
+                        pass
+                best_key = ekey
+                best_cal = 0.0
+                best_tauc = e_tauc
+                best_vauc = e_vauc
+                best_axis = axis
+                self.log(f"ENSEMBLE {axis}_{ename}: legs={len(_ens_preds)} n_pred={len(ens_list)} "
+                         f"train_auc={round(e_tauc,4)} val_auc={round(e_vauc,4)}")
+
+        # Manifest of all cells (for the driver / infer cell selection).
+        _put(self.object_store, f"autoresearch/{TICKER}/manifest.json", json.dumps({
+            "ticker": TICKER,
+            "thresh": thresh,
+            "sizing": sizing,
+            "n_cells": len(cells),
+            "cells": cells,
+        }))
+        # Latest pointer = the cell selected by MIN val DA (Wang's val metric).
+        # PERMUTE/CONTROL runs must NOT repoint the shared pointer (leak-review LOW).
+        if best_key and not CONFIG.get("permute_labels"):
+            _put(self.object_store, f"autoresearch/{TICKER}/latest_key.json",
+                                   json.dumps({"key": best_key}))
+
+        # Stats consumed by validate_script()/orchestrator (best_cal, train_auc,
+        # val_auc MUST be set). best_* describe the val-DA-selected cell.
+        self.set_runtime_statistic("best_cal", str(round(float(best_cal), 4)))
+        self.set_runtime_statistic("best_da", str(round(float(best_da if best_da < 1e17 else 0.0), 4)))
+        self.set_runtime_statistic("train_auc", str(round(float(best_tauc), 4)))
+        self.set_runtime_statistic("val_auc", str(round(float(best_vauc), 4)))
+        self.set_runtime_statistic("n_cells", str(len(cells)))
+        self.set_runtime_statistic("bar_type", str(best_axis))
+        try:
+            import xgboost as _xgbv, sklearn as _skv
+            self.set_runtime_statistic("xgb_version", str(_xgbv.__version__))
+            self.set_runtime_statistic("skl_version", str(_skv.__version__))
+        except Exception:
+            pass
+        self.log(f"SWEEP done: n_cells={len(cells)} best_da={round(float(best_da),4)} "
+                 f"best_cal={round(float(best_cal),4)} best_axis={best_axis}")

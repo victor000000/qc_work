@@ -174,7 +174,7 @@ mod tests {
         let waits = RefCell::new(Vec::new());
         let result = await_capacity(
             || {
-                requests.borrow_mut().push((31338455, "same-warm-compile"));
+                requests.borrow_mut().push((31_338_455, "same-warm-compile"));
                 ready(Ok(responses.borrow_mut().pop_front().unwrap()))
             },
             |delay| {
@@ -185,7 +185,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(result.backtest.unwrap().backtest_id, "real-created-id");
-        assert_eq!(*requests.borrow(), vec![(31338455, "same-warm-compile"); 3]);
+        assert_eq!(*requests.borrow(), vec![(31_338_455, "same-warm-compile"); 3]);
         assert_eq!(*waits.borrow(), vec![5, 10]);
     }
 
