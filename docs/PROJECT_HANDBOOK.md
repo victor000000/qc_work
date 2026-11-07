@@ -1,16 +1,20 @@
-> Latest 0.9.0 validation (2026-11-05): [C0 margin and IV evidence](../strategies/sstrangle/results/margin_verified_v090_20261105/RESULTS.md). 427 tests passed. Cloud-tested diagnostic/API and publication-race fixes preserve exact native account parity. C0 still fails on margin; IV replay passes but historical root cause remains open. Pre-trigger margin state, full sidecar/feature parity, strict provider inputs and economic acceptance remain gaps.
-
-> Updated 2026-11-05: [0.9.0 clock fix confirmed](../strategies/sstrangle/results/fix_v090_20261105/RESULTS.md). 421 tests passed; four fresh QC runs confirm 390/390 regular and 210/210 early-close coverage, valid finalization, exact orders/cash/equity parity. Independent sidecar readback, warmed-axis/C1/P1 validation, strict provider inputs and native IV robustness remain open.
-
 # Project handbook and continuation guide
 
 Validation addendum 2026-11-05: [latest results](../strategies/sstrangle/results/validation_v090_20261105/RESULTS.md). Cloud jobs have now executed: regular C0 account parity passed, but incomplete observer sessions, early-close failures and restricted sidecar export block full acceptance. The October 31 procedures and October 30 evidence below remain dated references. Use the updated backlog before further cloud work.
 
 Updated 2026-10-31. This is the reusable workspace guide. Verified SSTRANGLE results referenced here were produced on 2026-10-30; this documentation update does not establish new cloud or provider status.
 
+## Current release boundary (reviewed 2026-11-07)
+
+The executor is 1.2.0, the axis engine below is 0.9.0, and the newest diagnostic tool is [0.9.2](../strategies/sstrangle/poc/v092/README.md). Versioned engines and diagnostic modules have different identities; the 0.9.2 release did not rename the feature engine or establish a margin/IV solver fix.
+
+Use [configuration](CONFIGURATION.md), [environment](ENVIRONMENT.md), [CLI](../USAGE.md), [operations](OPERATIONS.md) and [CI](CI_CD.md) for current setup/operation commands. The detailed contracts and reproduction below retain the v090 research scope. Links to omitted results, adjacent provider paths and `.local` records are operational-only evidence references; public source does not include those datasets. Synthetic fixtures must remain labeled synthetic. A sampled replay never silently satisfies strict historical availability gates.
+
+For a bounded new probe, assemble source with `python -m strategies.sstrangle.poc.v092.build_probe --help`, then inspect its base/plan hashes before any separately scoped cloud submission. Decode exported runtime statistics through `python -m strategies.sstrangle.poc.v092.receipt --help`. Help calls are safe; assembly writes a new source directory. A complete set must pass integrity, schema, phase and window checks. Callback labels do not establish margin-scan order.
+
 ## 1. Start here
 
-This workspace combines a shared Rust QuantConnect (QC) executor with separate Python strategy research projects. The latest SSTRANGLE design is [0.9.0](../strategies/sstrangle/research/design_20261030_v090/DESIGN.md). Its local engineering tests and sampled PoCs pass. Strict provider data, actual QC cloud parity and funded economic acceptance remain open.
+This workspace combines a shared Rust QuantConnect (QC) executor with separate Python strategy research projects. The feature-engine SSTRANGLE design is [0.9.0](../strategies/sstrangle/research/design_20261030_v090/DESIGN.md). Its local engineering tests and sampled PoCs pass. Strict provider data, actual QC cloud parity and funded economic acceptance remain open.
 
 Read [current work](CURRENT_WORK.md) for dated results, [next steps](TODO.md) for dependencies, and [CLI usage](../USAGE.md) before operating the executor. Historical reports and saved continuation files describe their own run identities; they are not live queue monitors.
 
@@ -36,7 +40,7 @@ Read [current work](CURRENT_WORK.md) for dated results, [next steps](TODO.md) fo
 | `strategies/sstrangle/` | Options strategies, local engines, versioned PoCs, designs and evidence |
 | `strategies/ss45dte/` | Separate options strategy; SSTRANGLE revisions do not automatically change it |
 | `strategies/wang-ml/` | Separate historical ML research and references |
-| `data/` | Local runtime databases, logs and pool configuration; may contain credentials |
+| `data/` | Private runtime databases, logs and pool configuration; credentials are stored separately |
 | `docs/` | Workspace architecture, operations, status and navigation |
 | `workspaces/` | Imported LEAN/incubation resources; see its README |
 

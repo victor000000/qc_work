@@ -1,3 +1,12 @@
+> Current documentation correction (2026-11-07): executor 1.2.0 / axis engine 0.9.0 / diagnostics 0.9.2. Use [documentation guide](README.md), [CI](CI_CD.md) and [operations](OPERATIONS.md) for current commands. Dated results/checklists below retain their original scope; omitted private artifacts and past account checks are not present readiness certification.
+
+## Current acceptance dependencies — 2026-11-07
+
+1. Validate v092 native group APIs/runtime capacity and exact matched cloud account parity before interpreting probe receipts.
+2. Establish actual margin-scan ordering and pre-trigger composition; do not infer either from callback labels.
+3. Retain the historical IV cause as unresolved until failing contract/inputs/trace exist.
+4. Complete independent sidecar/feature parity, strict provider inputs and economic acceptance separately.
+
 > Latest 0.9.0 validation (2026-11-05): [C0 margin and IV evidence](../strategies/sstrangle/results/margin_verified_v090_20261105/RESULTS.md). 427 tests passed. Cloud-tested diagnostic/API and publication-race fixes preserve exact native account parity. C0 still fails on margin; IV replay passes but historical root cause remains open. Pre-trigger margin state, full sidecar/feature parity, strict provider inputs and economic acceptance remain gaps.
 
 # Next steps

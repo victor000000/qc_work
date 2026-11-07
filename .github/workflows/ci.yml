@@ -71,6 +71,7 @@ jobs:
           duckdb_lib=$(find target -name libduckdb.so -print -quit)
           test -n "$duckdb_lib"
           echo "LD_LIBRARY_PATH=$(dirname "$PWD/$duckdb_lib")" >> "$GITHUB_ENV"
+      - run: python scripts/check_docs.py
       - run: python -m pytest tests
 
   audit:

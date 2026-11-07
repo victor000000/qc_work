@@ -1,3 +1,5 @@
+> Current documentation correction (2026-11-07): executor 1.2.0 / axis engine 0.9.0 / diagnostics 0.9.2. Use [documentation guide](README.md), [CI](CI_CD.md) and [operations](OPERATIONS.md) for current commands. Dated results/checklists below retain their original scope; omitted private artifacts and past account checks are not present readiness certification.
+
 > 2026-11-07: 0.9.1/0.9.2 diagnostic design, self-review and implementation: [release evidence](releases/qc-v092-review.md). Cloud and economic acceptance remain open.
 
 > Latest 0.9.0 validation (2026-11-05): [C0 margin and IV evidence](../strategies/sstrangle/results/margin_verified_v090_20261105/RESULTS.md). 427 tests passed. Cloud-tested diagnostic/API and publication-race fixes preserve exact native account parity. C0 still fails on margin; IV replay passes but historical root cause remains open. Pre-trigger margin state, full sidecar/feature parity, strict provider inputs and economic acceptance remain gaps.

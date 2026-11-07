@@ -1,49 +1,28 @@
-# Native development and research environment
+# Native environment and setup
 
-Updated: 2026-10-23. **Docker is not required.** Run this project directly in Linux or Ubuntu WSL. Existing setup scripts, the Rust QC client/server and Python research tools use this environment already.
+Current instructions reviewed 2026-11-07. Use native Linux or Ubuntu WSL on a Linux filesystem. Docker is unnecessary; the historical retirement record remains below with its original dates. The imported LEAN checkout and nested research projects have independent dependencies and are not needed for executor tests.
 
-## Components
-
-| Component | Runtime |
-|---|---|
-| QC queue, API client and result collection | Native Rust executable in `target/release/` |
-| Feature work, reconciliation and local AKQuant replay | Workspace `.venv` |
-| DuckDB and Parquet | Local libraries and files; no database service |
-| Strategy execution in QC | QuantConnect cloud runtime |
-| Provider integration | Native SDK reading the sibling project's published data |
-
-The imported `workspaces/lean` tree is reference/incubation material, not a prerequisite for this workflow. Local LEAN execution is outside this setup; evaluate its own dependencies separately if that workflow is adopted.
-
-## Setup
-
-Work from the Linux filesystem (`/home/vic/qc_work`), using a Linux virtual environment. Install Rustup, a C compiler and `uv` first. Then:
+Install Rustup, a C compiler/toolchain and uv. From the checkout root:
 
 ```bash
-cd /home/vic/qc_work
-./scripts/setup.sh
-```
-
-The script uses the pinned Rust toolchain and Python 3.12 dependency lock, installs workspace packages and builds the native Rust binary. It does not start the QC server or submit a job.
-
-For optional provider integration and options research:
-
-```bash
-uv pip install --python .venv/bin/python -r requirements-data.txt
-uv pip install --python .venv/bin/python -r strategies/sstrangle/local/requirements.txt
-```
-
-The provider integration requires the sibling `../data_providers` checkout. See [local replay limitations](../strategies/sstrangle/local/README.md) before interpreting AKQuant results.
-
-## Verify and operate
-
-```bash
-.venv/bin/python -c 'import duckdb, pyarrow, akquant; print("Native research imports OK")'
+bash scripts/setup.sh
+bash scripts/check.sh
 ./target/release/qc-backtest-server --help
 ```
 
-For code changes, run the relevant tests; `./scripts/check.sh` is the full workspace check. See [CLI usage](../USAGE.md) for operational commands and credentials configuration.
+Setup creates/reuses a Linux Python 3.12 environment, installs `requirements-dev.lock` and editable packages, and builds the release executor with Cargo.lock. It does not start the QC server or submit work. Run on a fresh development checkout or coordinate environment/build changes with active local processes. Linux access locks are part of the shared DuckDB protocol; Windows users should run this workflow inside WSL.
 
-Before starting the Rust server, inspect existing local/cloud execution identities. Never restart it while a cloud backtest is nonterminal: startup recovery can cancel an in-flight run. Setup and dependency changes should also be scheduled outside active local research processes.
+DuckDB build cache restoration can omit the native library while keeping Cargo metadata. The local check entrypoint and native CI jobs run `bash scripts/bootstrap_duckdb.sh` to rehydrate the pinned 1.5.6 dependency. Installed dependencies can permit offline test runs, but setup/bootstrap may require public registry/release access. See [CI](CI_CD.md) and [operations](OPERATIONS.md) for diagnostics.
+
+Optional provider integration uses `requirements-data.txt` and the independently maintained adjacent provider checkout. The local options adapter has its own `strategies/sstrangle/local/requirements.txt`. These are optional integrations, not prerequisites for recreating omitted private market evidence. Read their help and delivery contracts before requesting data. [Local replay limits](../strategies/sstrangle/local/README.md) remain applicable.
+
+Safe import smoke:
+
+```bash
+.venv/bin/python -c 'import duckdb, pyarrow, akquant; print("research imports OK")'
+```
+
+Credentials and operations are covered by [configuration](CONFIGURATION.md), [credentials](CREDENTIALS.md) and [recovery](OPERATIONS.md). Build/import success does not establish native cloud API compatibility or live readiness.
 
 ## Scope of the change
 

@@ -3,6 +3,10 @@
 Reverse-chronological. Dates in local TZ. `git log` is the authoritative
 source; this file groups the changes that mattered.
 
+## Documentation review — 2026-11-07
+
+Current guides now distinguish executor 1.2.0, v090 feature engine and v092 diagnostics; correct authentication, CLI, cache bootstrap and hosted-CI boundaries; and inventory public/native prose. Dated research/release facts below are preserved. See [documentation coverage](docs/DOCUMENTATION_AUDIT.md) for exact verification scope and exclusions. This entry records documentation work, not a new trading/runtime release.
+
 ## Unreleased (2026-05-21)
 
 ### Bugs fixed

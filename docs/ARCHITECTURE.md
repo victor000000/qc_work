@@ -24,13 +24,12 @@ flowchart LR
   strategy databases remain independent. The generic schema is `crates/qc-server/schema.sql`.
 - `data/projects.json`: dedicated mutable compute projects shared by active strategies:
   `{"projects": [123456, 123457]}`. Pool projects are disposable execution workspaces.
-- Credentials may come from `QC_USER_ID`, `QC_API_TOKEN`, `QC_ORGANIZATION_ID`, or the first
-  discovered database's settings. `QC_DATA_DIR` selects the CLI runtime directory.
+- Authentication comes from `QC_USER_ID`/`QC_API_TOKEN` or the private file selected by `QC_CREDENTIALS_FILE`; it is never read from strategy databases. Organization selection is separate through `QC_ORGANIZATION_ID` or ordinary settings. `QC_DATA_DIR` selects the CLI runtime directory.
 
 `init-strategy` creates an isolated generic schema. Opening a legacy strategy DB adds newer
 execution columns, preserving research tables and research-owned version metadata.
 Legacy SQLite files require the verified import described in [DUCKDB_MIGRATION.md](DUCKDB_MIGRATION.md).
-A strategy without configured projects remains available for credentials and inspection;
+A strategy without configured projects remains available for settings and inspection;
 runner and warmer database lists are matched to active strategy configurations by name.
 
 ## Job isolation
@@ -83,5 +82,10 @@ transient API outage cannot erase a recoverable result or launch a duplicate run
 - Google Drive backup code checkpoints and copies DuckDB while holding the shared access
   lock. Prior cloud backups are preserved. Backup regression tests never upload data.
 
-Live checks create/delete only their own temporary projects. Hosted CI requires a GitHub
-repository; this imported workspace currently has no Git metadata or configured remote.
+Live checks create/delete their own temporary projects and consume account compute; they remain ignored by default. The published repository has hosted CI. The separate operational checkout may lack Git metadata; that filesystem fact does not describe the published repository. See [CI](CI_CD.md) and [publication](../PUBLICATION.md).
+
+## Versioned diagnostic boundary
+
+The v090 axis pipeline consumes pinned minute data and publishes completion-bound replay evidence. The v092 probe is a separate, bounded observer: it inserts callbacks into an ordinary supported QCAlgorithm source, captures native account/group state, and publishes digest-last receipts. A decoder rejects missing/corrupt/out-of-window/error/capacity evidence. Hashes detect internal corruption; they do not authenticate QC origin or prove margin-scan ordering. Source hooks preserve supported callback bodies/returns, but dynamic Python mutation lies outside the assembler contract. See the [reviewed v092 design](../strategies/sstrangle/research/design_20261107_v092/DESIGN.md).
+
+Acquisition and provider release certification belong to the adjacent provider project. This executor owns queue/result persistence; strategy packages own research hypotheses and selection. The external screener owns its risk/execution UI. Passing one project's tests does not clear another's acceptance gates.

@@ -1,3 +1,5 @@
+> Documentation reviewed 2026-11-07: feature engine [0.9.0](poc/v090/README.md), current diagnostics [0.9.2](poc/v092/README.md). These are independent versions. Dated campaign results below remain historical; unavailable `results/` links refer to private operational evidence excluded from public source. Current CI success does not clear economic or provider gates.
+
 > 2026-11-07: 0.9.1/0.9.2 diagnostic design, self-review and implementation: [release evidence](../../docs/releases/qc-v092-review.md). Cloud and economic acceptance remain open.
 
 > Latest 0.9.0 validation (2026-11-05): [C0 margin and IV evidence](results/margin_verified_v090_20261105/RESULTS.md). 427 tests passed. Cloud-tested diagnostic/API and publication-race fixes preserve exact native account parity. C0 still fails on margin; IV replay passes but historical root cause remains open. Pre-trigger margin state, full sidecar/feature parity, strict provider inputs and economic acceptance remain gaps.

@@ -1,21 +1,50 @@
-# CI and deployment boundaries
+# Development, testing and CI
 
-The public checkout has credential-free Python and Rust CI. Python strategy/workspace tests use synthetic records and temporary databases. The custom-axis v088/v089/v090 and design tests run explicitly; they are not implicitly covered by the strategy's default test directory. Source templates and the S001 baseline source are included. The US exchange-calendar reference is a reduced public LEAN market-hours entry, not a provider price dataset.
+The supported offline suites exercise local/mocked behavior. They do not acquire provider data, trade, start production queues or certify native QC account parity. Installing dependencies needs registry/release access; test bodies use synthetic data and temporary databases.
 
-The private historical-order regressions were replaced in the public checkout with explicit synthetic native-order/terminal-response shapes. They retain the failure checks for incomplete fills, absent fees, invalid prices, identity mismatches and incomplete remote state. Passing them does not claim that the omitted private history has been replayed. That historical evidence stays in the operational workspace.
-
-Rust is pinned to 1.95.0. CI uses the committed Cargo.lock, formatting checks, Clippy with warnings denied, unit tests and a release build. The audit tool is pinned to cargo-audit 0.22.2 and installed with its lockfile; the project lockfile is audited without suppressing advisories. Registry/build-dependency access is required. No workflow acquires market data or uses account credentials.
-
-Local Python command:
+## Reproduce from a clean source checkout
 
 ```bash
-python -m pytest tests strategies/s001/tests strategies/s002/tests strategies/sml01/tests strategies/sstrangle/tests strategies/sstrangle/poc/v088 strategies/sstrangle/poc/v089 strategies/sstrangle/poc/v090 strategies/sstrangle/research/design_20261030_v090
+bash scripts/setup.sh
+bash scripts/check.sh
 ```
 
-Run Rust checks with `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`, `cargo test --workspace --all-targets --locked`, and `cargo build --workspace --release --locked`. For a local host where automatic DuckDB download is unavailable, set `DUCKDB_LIB_DIR` and `LD_LIBRARY_PATH` to an already installed, matching DuckDB 1.5.6 library. This does not change the pinned dependency version. A binary-dependent workspace smoke test skips explicitly when the native executable has not been built in that job.
+Setup uses Rust 1.95.0, Python 3.12, `requirements-dev.lock`, and editable installs for workspace storage and S001/S002/SML01. The local check script runs formatting, native DuckDB bootstrap, strict all-feature/all-target Clippy, all-target Rust tests, debug binary build, workspace tests, isolated strategy tests and explicit custom-axis/design tests. `QC_PYTHON` can select an existing compatible Python interpreter; otherwise `.venv/bin/python` is used.
 
-QC cloud parity, provider data permissions, actual account funding and live execution are separate integrations. Local/Actions success cannot certify them. C0 margin intervention, historical IV root cause, strict provider readiness and full feature-sidecar parity remain open in 0.9.0.
+Strategy suites run in their own directories to preserve their import/configuration boundaries. Do not replace this with one combined pytest collection across all strategy roots: same-named modules and strategy-specific configuration can collide. The custom-axis command is separate:
 
-No deployment target or CD workflow is configured. The CI release binary is a build artifact, not a deployment. No service, account or brokerage action is taken by these checks.
+```bash
+.venv/bin/python -m pytest strategies/sstrangle/poc/v088 \
+  strategies/sstrangle/poc/v089 strategies/sstrangle/poc/v090 \
+  strategies/sstrangle/poc/v091 strategies/sstrangle/poc/v092 \
+  strategies/sstrangle/research/design_20261030_v090
+```
 
-Security refresh (2026-11-05): rustls-webpki 0.103.16, webpki-root-certs/webpki-roots 1.0.10 address RUSTSEC-2026-0382/0383/0381. Tokio 1.53.3 addresses the AsyncFd I/O-safety warning RUSTSEC-2026-0386 (https://rustsec.org/advisories/RUSTSEC-2026-0386.html). Audit remains enabled without advisory suppressions. Sstrangle CI explicitly selects its tests directory and installs akquant 0.3.67 so the real replay-engine capital regression runs.
+Older adversarial suites intentionally demonstrate old-version defects and are not part of current green acceptance. Public synthetic fixtures stand in for omitted private historical order data; they do not reproduce that market history.
+
+## Native dependency cache correctness
+
+DuckDB Python is 1.5.6; Rust `duckdb`/`libduckdb-sys` is 1.10506.1. `.cargo/config.toml` enables the dependency's version-specific native download. A restored Cargo fingerprint can outlive its downloaded library. `bash scripts/bootstrap_duckdb.sh` clears only that package's build artifacts and builds it with `--locked`, forcing native setup/copy to run. An existing matching release archive can be reused. `--offline` prevents Cargo registry access, but upstream native setup may still need HTTP if its archive is absent.
+
+Both native CI jobs invoke bootstrap immediately after cache restore. Workspace-tools builds the debug executable and sets the matching runtime library directory before Python tests, so the native-writer regression does not skip simply because no binary was built. For an already installed library, `DUCKDB_LIB_DIR` and the host loader path must point to matching DuckDB 1.5.6. Do not substitute a newer system library to silence linking errors.
+
+## Hosted workflow
+
+`.github/workflows/ci.yml` triggers on push, pull request and explicit dispatch with contents-read permission:
+
+| Job | Checks |
+|---|---|
+| Rust | Pinned toolchain, cache/bootstrap, fmt, strict Clippy, all-target tests, locked release build |
+| Strategy matrix | Locked Python install; isolated S001/S002/SML01/SSTRANGLE suites; v088–v092/design checks in SSTRANGLE |
+| Workspace-tools | Locked Python install, native bootstrap/build and storage/tool regressions |
+| Audit | cargo-audit 0.22.2 installed locked; audit committed dependency lock without advisory suppression |
+
+No CD target exists. Build artifacts do not deploy a service. The native-cache fix's [seven-job hosted run](https://github.com/victor000000/qc_work/actions/runs/42367520420) passed at exact SHA `8c29672d76968b1bd18c31fb3bc3dc33d75d3c2e`. Those are dated results, not a guarantee for a later documentation commit. Prior local suites recorded 749 Python and 75 Rust passes; two private-credential/cloud Rust tests were intentionally ignored.
+
+## Documentation checks
+
+```bash
+.venv/bin/python scripts/check_docs.py
+```
+
+The checker validates canonical public local links/anchors and records structural inventory/link findings for all owned Markdown. It does not fetch external URLs, validate private evidence or execute operational examples. CI runs it in workspace-tools; documentation-only changes need that check and safe CLI help verification, not live account exercises.

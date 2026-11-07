@@ -1,3 +1,5 @@
+> Current documentation correction (2026-11-07): executor 1.2.0 / axis engine 0.9.0 / diagnostics 0.9.2. Use [documentation guide](README.md), [CI](CI_CD.md) and [operations](OPERATIONS.md) for current commands. Dated results/checklists below retain their original scope; omitted private artifacts and past account checks are not present readiness certification.
+
 # Workspace reconstruction
 
 Purpose: shared QuantConnect execution infrastructure and isolated strategy research.

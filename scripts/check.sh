@@ -11,6 +11,7 @@ if [[ -n "$duckdb_lib" ]]; then
     export LD_LIBRARY_PATH="$(dirname "$PWD/$duckdb_lib")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
 python_bin="${QC_PYTHON:-$PWD/.venv/bin/python}"
+"$python_bin" scripts/check_docs.py
 "$python_bin" -m pytest tests
 (cd strategies/s001 && "$python_bin" -m pytest)
 (cd strategies/s002 && "$python_bin" -m pytest)

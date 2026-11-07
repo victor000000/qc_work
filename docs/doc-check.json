@@ -1,0 +1,27 @@
+{
+  "canonical": [
+    "README.md",
+    "USAGE.md",
+    "PUBLICATION.md",
+    "docs/README.md",
+    "docs/CONFIGURATION.md",
+    "docs/OPERATIONS.md",
+    "docs/CI_CD.md",
+    "docs/ENVIRONMENT.md",
+    "docs/ARCHITECTURE.md",
+    "docs/DOCUMENTATION_AUDIT.md",
+    "strategies/sstrangle/poc/v091/README.md",
+    "strategies/sstrangle/poc/v092/README.md"
+  ],
+  "mixed": [
+    "docs/PROJECT_HANDBOOK.md",
+    "docs/CURRENT_WORK.md",
+    "docs/TODO.md",
+    "docs/RECONSTRUCTION.md",
+    "strategies/sstrangle/README.md",
+    "strategies/s001/WORKFLOW.md",
+    "strategies/s002/README.md",
+    "strategies/sml01/README.md",
+    "strategies/ss45dte/README.md"
+  ]
+}

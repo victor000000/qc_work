@@ -1,0 +1,1037 @@
+{
+  "scope": "Tracked/nonignored owned prose; network URLs not fetched; fenced code not interpreted as links.",
+  "counts": {
+    "documents": 106,
+    "canonical": 12,
+    "mixed": 9,
+    "retained": 85
+  },
+  "documents": [
+    {
+      "path": "CHANGELOG.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Changelog",
+      "local_links": 1,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "PUBLICATION.md",
+      "role": "canonical-current",
+      "title": "Publication and research-data boundaries",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "README.md",
+      "role": "canonical-current",
+      "title": "QuantConnect research workspace",
+      "local_links": 17,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "USAGE.md",
+      "role": "canonical-current",
+      "title": "qc-backtest-server CLI reference",
+      "local_links": 4,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "role": "canonical-current",
+      "title": "Execution and strategy boundaries",
+      "local_links": 4,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/CI_CD.md",
+      "role": "canonical-current",
+      "title": "Development, testing and CI",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/CONFIGURATION.md",
+      "role": "canonical-current",
+      "title": "Executor configuration",
+      "local_links": 2,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/CREDENTIALS.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Private credentials",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/CURRENT_WORK.md",
+      "role": "current-guide-with-retained-historical-evidence",
+      "title": "Current work",
+      "local_links": 59,
+      "workstation_local_references": 6,
+      "unavailable_links": [
+        "../strategies/sstrangle/liquidity/plan.json",
+        "../strategies/sstrangle/research/design_20261023_v5/DESIGN_REPORT.pdf",
+        "../strategies/sstrangle/research/design_20261023_v6/DESIGN_REPORT.pdf",
+        "../strategies/sstrangle/research/design_20261023_v6/DESIGN_REPORT.txt",
+        "../strategies/sstrangle/research/design_20261023_v6/design_graph.svg",
+        "../strategies/sstrangle/research/design_20261024_v065/DESIGN_REPORT.pdf",
+        "../strategies/sstrangle/research/design_20261024_v065/DESIGN_REPORT.txt",
+        "../strategies/sstrangle/research/design_20261024_v7/DESIGN_REPORT.pdf",
+        "../strategies/sstrangle/research/design_20261024_v7/DESIGN_REPORT.txt",
+        "../strategies/sstrangle/research/design_20261024_v8/DESIGN_REPORT.pdf",
+        "../strategies/sstrangle/research/design_20261024_v8/DESIGN_REPORT.txt",
+        "../strategies/sstrangle/research/design_20261026_v075/DESIGN_REPORT.pdf",
+        "../strategies/sstrangle/research/design_20261026_v075/design_contract.json",
+        "../strategies/sstrangle/research/design_20261026_v085/DESIGN_REPORT.pdf",
+        "../strategies/sstrangle/results/custom_axis_v090_20261030/RESULTS.md",
+        "../strategies/sstrangle/results/fix_v090_20261105/RESULTS.md",
+        "../strategies/sstrangle/results/liquidity_local_research_20261020/summary.json",
+        "../strategies/sstrangle/results/margin_verified_v090_20261105/RESULTS.md",
+        "../strategies/sstrangle/results/qc_delta_poc_20261024/final_verification.json",
+        "../strategies/sstrangle/results/qc_delta_poc_20261024/local/feature_registry.json",
+        "../strategies/sstrangle/results/qc_delta_poc_20261024/local/summary.json",
+        "../strategies/sstrangle/results/qc_design_poc_20261026_v075/final_verification.json",
+        "../strategies/sstrangle/results/qc_final_poc_20261024/final_annual.csv",
+        "../strategies/sstrangle/results/qc_final_poc_20261024/final_comparison.csv",
+        "../strategies/sstrangle/results/qc_final_poc_20261024/final_verification.json",
+        "../strategies/sstrangle/results/qc_poc_20261026_v085/final_comparison.csv",
+        "../strategies/sstrangle/results/qc_poc_20261026_v085/final_verification.json",
+        "../strategies/sstrangle/results/qc_poc_20261027_v087/RESULTS.md",
+        "../strategies/sstrangle/results/qc_sizing_poc_20261024/final_comparison.csv",
+        "../strategies/sstrangle/results/qc_sizing_poc_20261024/final_verification.json",
+        "../strategies/sstrangle/results/qc_sizing_poc_20261024/robustness.json",
+        "../strategies/sstrangle/results/qc_three_demo_poc_20261023/analysis/annual.csv",
+        "../strategies/sstrangle/results/qc_three_demo_poc_20261023/final_verification.json",
+        "../strategies/sstrangle/results/qc_three_demo_poc_20261023/trial_ledger.json",
+        "../strategies/sstrangle/results/strangle_basket-calmar_20261019_204146/research_report/REPORT.txt",
+        "../strategies/sstrangle/results/strangle_basket-calmar_20261019_204146/terminal_queue_recovery.json",
+        "../strategies/sstrangle/results/strangle_basket_20261018_191012/baseline_report/REPORT.md",
+        "../strategies/sstrangle/results/validation_v090_20261105/RESULTS.md"
+      ]
+    },
+    {
+      "path": "docs/DOCUMENTATION_AUDIT.md",
+      "role": "canonical-current",
+      "title": "Documentation coverage and review — 2026-11-07",
+      "local_links": 1,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/DUCKDB_MIGRATION.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "DuckDB and Parquet migration — 2026-10-17",
+      "local_links": 2,
+      "workstation_local_references": 0,
+      "unavailable_links": [
+        "../data/audio/options_backtest_workflow/WORKFLOW.md",
+        "../strategies/sstrangle/results/local_akquant_20261017/LOCAL_RESULTS.md"
+      ]
+    },
+    {
+      "path": "docs/ENVIRONMENT.md",
+      "role": "canonical-current",
+      "title": "Native environment and setup",
+      "local_links": 6,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/MIGRATION.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Folder migration map",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/OPERATIONS.md",
+      "role": "canonical-current",
+      "title": "Operations, recovery and troubleshooting",
+      "local_links": 2,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/OPTIONOMEGA_0DTE_5M_DATA_REQUIREMENTS_20261026.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "OptionOmega 0DTE 5-minute data requirements — consumer summary",
+      "local_links": 4,
+      "workstation_local_references": 3,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/OPTIONOMEGA_0DTE_5M_DATA_REQUIREMENTS_20261027.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Option Omega twelve-ticker data requirements",
+      "local_links": 3,
+      "workstation_local_references": 3,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/OPTIONS_DATA_REVIEW_20261026.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Strategy data review and provider handoff",
+      "local_links": 3,
+      "workstation_local_references": 3,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/PROJECT_HANDBOOK.md",
+      "role": "current-guide-with-retained-historical-evidence",
+      "title": "Project handbook and continuation guide",
+      "local_links": 23,
+      "workstation_local_references": 0,
+      "unavailable_links": [
+        "../strategies/sstrangle/results/custom_axis_v090_20261030/RESULTS.md",
+        "../strategies/sstrangle/results/custom_axis_v090_20261030/acceptance_matrix.json",
+        "../strategies/sstrangle/results/custom_axis_v090_20261030/continuation_state.json",
+        "../strategies/sstrangle/results/custom_axis_v090_20261030/final_tests.txt",
+        "../strategies/sstrangle/results/custom_axis_v090_20261030/manifest.json",
+        "../strategies/sstrangle/results/validation_v090_20261105/RESULTS.md"
+      ]
+    },
+    {
+      "path": "docs/PROJECT_REVIEW_20261018.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Project review and debugging — 2026-10-18",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/README.md",
+      "role": "canonical-current",
+      "title": "Documentation guide",
+      "local_links": 15,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/RECONSTRUCTION.md",
+      "role": "current-guide-with-retained-historical-evidence",
+      "title": "Workspace reconstruction",
+      "local_links": 3,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/TODO.md",
+      "role": "current-guide-with-retained-historical-evidence",
+      "title": "Next steps",
+      "local_links": 21,
+      "workstation_local_references": 0,
+      "unavailable_links": [
+        "../strategies/sstrangle/research/design_20261023_v5/POC_REPORT.txt",
+        "../strategies/sstrangle/research/design_20261023_v6/DESIGN_REPORT.pdf",
+        "../strategies/sstrangle/research/design_20261023_v6/POC_REPORT.txt",
+        "../strategies/sstrangle/research/design_20261024_v065/DESIGN_REPORT.pdf",
+        "../strategies/sstrangle/research/design_20261024_v7/DESIGN_REPORT.pdf",
+        "../strategies/sstrangle/research/design_20261024_v8/DESIGN_REPORT.pdf",
+        "../strategies/sstrangle/results/custom_axis_v090_20261030/acceptance_matrix.json",
+        "../strategies/sstrangle/results/fix_v090_20261105/RESULTS.md",
+        "../strategies/sstrangle/results/margin_verified_v090_20261105/RESULTS.md",
+        "../strategies/sstrangle/results/qc_baseline_poc_20261023/",
+        "../strategies/sstrangle/results/qc_three_demo_poc_20261023/final_verification.json",
+        "../strategies/sstrangle/results/validation_v090_20261105/RESULTS.md",
+        "../strategies/sstrangle/results/warmed_v090_20261105/RESULTS.md"
+      ]
+    },
+    {
+      "path": "docs/VERIFICATION.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Verification — 2026-10-17",
+      "local_links": 6,
+      "workstation_local_references": 0,
+      "unavailable_links": [
+        "../strategies/sstrangle/results/local_akquant_20261017/LOCAL_RESULTS.md",
+        "../strategies/sstrangle/results/strangle_single_20261017_162036/RESULTS.md",
+        "../strategies/sstrangle/results/strangle_single_20261017_162036/verification.json"
+      ]
+    },
+    {
+      "path": "docs/break_stuck_suggestions.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "s001 Break-Stuck Suggestions — Structural Review",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/performance_improvement_suggestions.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "s001 Performance Improvement Suggestions",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/releases/qc-native-cache-evidence-20261107.txt",
+      "role": "retained-history-reference-or-evidence",
+      "title": "qc-native-cache-evidence-20261107.txt",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/releases/qc-native-cache-fix-20261107.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Native DuckDB cache repair — 2026-11-07",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/releases/qc-v092-evidence/qc-publication-v092-tests.txt",
+      "role": "retained-history-reference-or-evidence",
+      "title": "qc-publication-v092-tests.txt",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/releases/qc-v092-evidence/qc-v092-clippy.txt",
+      "role": "retained-history-reference-or-evidence",
+      "title": "qc-v092-clippy.txt",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/releases/qc-v092-evidence/qc-v092-full-rust.txt",
+      "role": "retained-history-reference-or-evidence",
+      "title": "qc-v092-full-rust.txt",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/releases/qc-v092-evidence/qc-v092-s001.txt",
+      "role": "retained-history-reference-or-evidence",
+      "title": "qc-v092-s001.txt",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/releases/qc-v092-evidence/qc-v092-s002.txt",
+      "role": "retained-history-reference-or-evidence",
+      "title": "qc-v092-s002.txt",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/releases/qc-v092-evidence/qc-v092-sml01.txt",
+      "role": "retained-history-reference-or-evidence",
+      "title": "qc-v092-sml01.txt",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/releases/qc-v092-review.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "QC 0.9.1 and 0.9.2 local release review — 2026-11-07",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/s001_playbook.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "s001 Generator Playbook (R1645-R1688 distilled)",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/superpowers/plans/2026-04-20-infra-overhead-instrumentation.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Infra Overhead Instrumentation Implementation Plan",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/superpowers/plans/2026-04-20-pipelined-slots.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Pipelined slots implementation plan",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/superpowers/plans/2026-04-27-s001-fundamental-data-auto-sweep.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "S001 Fundamental Data Auto-Sweep Implementation Plan",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/superpowers/plans/2026-04-27-s001-fundamental-data-coverage.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "S001 Fundamental Data Coverage Implementation Plan",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/superpowers/plans/2026-04-27-s001-fundamental-data-v3.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "S001 Fundamental Data v3 Implementation Plan",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/superpowers/plans/2026-04-29-s001-mega-fundamental-sweep-plan.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "S001 Mega Fundamental-Field Sweep Implementation Plan",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/superpowers/specs/2026-04-20-infra-overhead-instrumentation-design.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Infra overhead instrumentation",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/superpowers/specs/2026-04-20-pipelined-slots-design.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Pipelined slots: early project release + async poll/collect",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/superpowers/specs/2026-04-20-zero-suppression-clippy-design.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Zero-suppression clippy cleanup",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/superpowers/specs/2026-04-27-s001-fundamental-data-auto-sweep-design.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "S001 Fundamental Data: Auto Threshold/Gate Sweep + Bake-Hash Fix",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/superpowers/specs/2026-04-27-s001-fundamental-data-coverage-design.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "S001 Fundamental Data: Full Coverage + Learning Loop",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/superpowers/specs/2026-04-27-s001-fundamental-data-v3-design.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "S001 Fundamental Data v3: Full-Grid Coarse Sweep + Adaptive Prune + Refine",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/superpowers/specs/2026-04-27-s001-fundamental-data-v3-roadmap.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "S001 Fundamental Data v3 Roadmap — Future Sub-Projects",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/superpowers/specs/2026-04-28-s001-dd-under-10-design.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "S001 — Improve car/mdd subject to dd < 10",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/superpowers/specs/2026-04-29-s001-mega-fundamental-sweep-design.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "S001 Mega Fundamental-Field Sweep — Design",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "docs/superpowers/specs/2026-05-04-s001-lambda-base-design.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "S001 Lambda-Base Design",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/s001/WORKFLOW.md",
+      "role": "current-guide-with-retained-historical-evidence",
+      "title": "S001 — 128-Spec Meaningful-Backtest Workflow (Reconstructed 2026-05-10)",
+      "local_links": 2,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/s002/README.md",
+      "role": "current-guide-with-retained-historical-evidence",
+      "title": "S002 ETF research",
+      "local_links": 3,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sml01/README.md",
+      "role": "current-guide-with-retained-historical-evidence",
+      "title": "Quant Autoresearch Workspace",
+      "local_links": 2,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sml01/docs/analysis/BACKTEST_AUDIT.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "OOS Real-Backtest Correctness Audit (2026-06-02)",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sml01/docs/analysis/CHAMPION_DECAY.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Champion alpha-decay / survival (formal, on REAL OOS return series)",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sml01/docs/analysis/DEPLOYMENT.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Deployment — the autoresearch book (LEAK-CORRECTED, 2026-06-03)",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sml01/docs/analysis/HONEST_AUDIT.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Session-scale honest audit (Deflated Sharpe at true trial counts)",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sml01/docs/analysis/OOS_LIVE_FIDELITY_AUDIT.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "OOS Backtest Audit — Synthesis Report",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sml01/docs/research/ETF_SCREEN_TABLE.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "311-ETF screen — results table",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sml01/docs/research/WANG_PIPELINE.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Wang Yiming's quant pipeline — canonical reference",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sml01/program.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "autoresearch",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sml01/refs/qa_doc/V4_V6_FINAL_RESULTS.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Final Pipeline Results (val-honest)",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/ss45dte/README.md",
+      "role": "current-guide-with-retained-historical-evidence",
+      "title": "SS45DTE: automatic research implementation",
+      "local_links": 3,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/ss45dte/research/automatic_20261025/README_before.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "ss45dte — a 45-DTE entry / 21-DTE exit short strangle",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/ss45dte/research/automatic_20261025/REPORT.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "SS45DTE corrected-cost QC completion — 2026-10-25",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/ss45dte/research/automatic_20261025/REPORT_before_cost_completion.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "SS45DTE automatic QC experiment — 2026-10-25",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/ss45dte/research/automatic_20261025/manual_spec_before_cost_completion.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "45DTESS: quantitative framework for discretionary execution",
+      "local_links": 5,
+      "workstation_local_references": 0,
+      "unavailable_links": [
+        "../../../data_providers/docs/requirements/DTE21_P5_PROVIDER_STATUS_20261025.md",
+        "../../../qc_work/strategies/ss45dte/research/review_20261025/HANDOFF.md",
+        "../../apps/trade_profile/strategy_quantification_20261025.py",
+        "../../reports/loss_attribution_2026-10-25/STRATEGY_short_strangle_final_20261025.md",
+        "../requirements/45DTESS_DISCRETIONARY_DATA_20261025.md"
+      ]
+    },
+    {
+      "path": "strategies/ss45dte/research/funnel_20261026/REPORT.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Current conclusion — corrected daily IV history",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/ss45dte/research/review_20261025/HANDOFF.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "SS45DTE standalone review handoff — 2026-10-25",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/README.history-20261021.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Short strangle research",
+      "local_links": 30,
+      "workstation_local_references": 0,
+      "unavailable_links": [
+        "../../data/audio/options_backtest_workflow/WORKFLOW.md",
+        "../../data/youtube/transcripts",
+        "basket/baseline_plan.json",
+        "optimization/CURRENT_RESEARCH_PROGRESS.json",
+        "optimization/rust_poll_retry_fix_20261019.json",
+        "optimization/training_entry_diagnostics_20261019/FINDINGS.txt",
+        "research/CURRENT_BASELINE_PROGRESS.json",
+        "research/screener_parity_20261018.json",
+        "research_plan.json",
+        "results/cl_scale_fix_20261018/summary.json",
+        "results/insolvency_fix_20261018/summary.json",
+        "results/local_akquant_20261017/LOCAL_RESULTS.md",
+        "results/performance_fix_20261018/cloud_summary.json",
+        "results/performance_fix_20261018/summary.json",
+        "results/spy_21dte_audit_20261018/RESULTS.md",
+        "results/strangle_basket-calmar_20261019_204146/manifest.json",
+        "results/strangle_basket-twtr-age-regression_20261019_203155/twtr_age_summary.json",
+        "results/strangle_basket_20261018_145612/failure_diagnostics/summary.json",
+        "results/strangle_basket_20261018_191012/baseline_equivalence.json",
+        "results/strangle_basket_20261018_191012/baseline_report/REPORT.md",
+        "results/strangle_basket_20261018_191012/baseline_report/summary.json",
+        "results/strangle_comparison_20261017_134629/RESULTS.md",
+        "results/strangle_improvements_20261017_141237/RESEARCH_RESULTS.md",
+        "results/strangle_single_20261017_162036/RESULTS.md",
+        "results/strangle_single_20261018_072859/HISTORICAL_RESULTS.md",
+        "results/zw_exit_fix_20261018/summary.json",
+        "single_research_plan.json"
+      ]
+    },
+    {
+      "path": "strategies/sstrangle/README.md",
+      "role": "current-guide-with-retained-historical-evidence",
+      "title": "Options and short-strangle research",
+      "local_links": 35,
+      "workstation_local_references": 0,
+      "unavailable_links": [
+        "optimization/CURRENT_RESEARCH_PROGRESS.json",
+        "poc/SOURCE_CONTRACT.txt",
+        "research/CURRENT_BASELINE_PROGRESS.json",
+        "research/design_20261024_v8/DESIGN_REPORT.pdf",
+        "research/design_20261026_v085/DESIGN_REPORT.pdf",
+        "research/tom_position_sizing_20261024/README.txt",
+        "research/tom_position_sizing_20261024/transcript.readable.en.txt",
+        "results/custom_axis_v090_20261030/RESULTS.md",
+        "results/fix_v090_20261105/RESULTS.md",
+        "results/liquidity_local_research_20261020/summary.json",
+        "results/margin_verified_v090_20261105/RESULTS.md",
+        "results/qc_baseline_poc_20261023/full_v5_evidence/audit.json",
+        "results/qc_poc_20261026_v085/final_verification.json",
+        "results/qc_three_demo_poc_20261023/analysis/annual.csv",
+        "results/qc_three_demo_poc_20261023/analysis/comparison.csv",
+        "results/qc_three_demo_poc_20261023/final_verification.json",
+        "results/strangle_basket-calmar_20261019_204146/research_report/REPORT.txt",
+        "results/strangle_basket_20261018_191012/baseline_report/REPORT.md",
+        "results/validation_v090_20261105/RESULTS.md",
+        "results/warmed_v090_20261105/RESULTS.md"
+      ]
+    },
+    {
+      "path": "strategies/sstrangle/local/README.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Local options research with AKQuant",
+      "local_links": 3,
+      "workstation_local_references": 0,
+      "unavailable_links": [
+        "../../../data/audio/options_backtest_workflow/WORKFLOW.md",
+        "../results/local_akquant_20261017/LOCAL_RESULTS.md"
+      ]
+    },
+    {
+      "path": "strategies/sstrangle/poc/README.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Option Omega audio-demo QC PoC",
+      "local_links": 7,
+      "workstation_local_references": 0,
+      "unavailable_links": [
+        "../research/design_20261021_v4/DEMO_STRATEGY_EXTRACTION.txt",
+        "../research/design_20261024_v8/DESIGN_REPORT.pdf",
+        "../results/qc_baseline_poc_20261023/",
+        "../results/qc_sizing_poc_20261024/final_verification.json",
+        "SOURCE_CONTRACT.txt"
+      ]
+    },
+    {
+      "path": "strategies/sstrangle/poc/v06/README.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Draft 0.6: three native QC demos",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/poc/v065/README.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Draft 0.65: delta fidelity and local alpha mini-PoC",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/poc/v07/README.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Draft 0.7 — close local optimization through native QC",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/poc/v075/README.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Draft 0.7.5 data admission and design PoC",
+      "local_links": 2,
+      "workstation_local_references": 0,
+      "unavailable_links": [
+        "../../research/design_20261026_v075/design_contract.json"
+      ]
+    },
+    {
+      "path": "strategies/sstrangle/poc/v08/README.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Draft 0.8 — full-equity research and robustness",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/poc/v085/README.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "0.8.5 — native baseline, bounded local research, funded QC verification",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/poc/v087/README.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "0.8.7 — implementation, independent replay and continuous QC validation",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/poc/v088/README.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "0.8.8 custom-axis implementation",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/poc/v089/README.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "0.8.9 implementation",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/poc/v090/README.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "0.9.0 executable design PoC",
+      "local_links": 7,
+      "workstation_local_references": 0,
+      "unavailable_links": [
+        "../../results/custom_axis_v090_20261030/RESULTS.md",
+        "../../results/fix_v090_20261105/RESULTS.md",
+        "../../results/margin_verified_v090_20261105/RESULTS.md",
+        "../../results/validation_v090_20261105/RESULTS.md",
+        "../../results/warmed_v090_20261105/RESULTS.md"
+      ]
+    },
+    {
+      "path": "strategies/sstrangle/poc/v091/README.md",
+      "role": "canonical-current",
+      "title": "0.9.1 bounded margin probe",
+      "local_links": 1,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/poc/v092/README.md",
+      "role": "canonical-current",
+      "title": "0.9.2 verified diagnostic receipts",
+      "local_links": 1,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/research/DATA_PROVIDER_REQUIREMENTS_20261018.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Historical options data requirements for qc_work",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/research/FREQUENCY_DEBUG_20261018.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "SPY entry-frequency investigation",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/research/QC_INSIGHTS_FINDINGS_20261018.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "QuantConnect Insights: findings and actual API check",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/research/baseline_diagnostics.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Why the short strangle baseline lost money",
+      "local_links": 3,
+      "workstation_local_references": 0,
+      "unavailable_links": [
+        "../research_plan.json",
+        "../results/strangle_comparison_20261017_134629/RESULTS.md",
+        "baseline_diagnostics.json"
+      ]
+    },
+    {
+      "path": "strategies/sstrangle/research/design_20261026_v075/DESIGN_REPORT.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Draft 0.7.5 0DTE strategy PoC design",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/research/design_20261026_v085/DESIGN_BODY.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "DESIGN_BODY.md",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/research/design_20261026_v085/DESIGN_REPORT.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Version 0.8.5 — 0DTE strategy design and measured evidence",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/research/design_20261027_v087/DESIGN_REPORT.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Version 0.8.7 — Independent reproduction and a simple companion strategy",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/research/design_20261029_custom_axis/DATA_REQUIREMENTS.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Provider requirement: one-minute SPXW data for 0DTE custom-axis research",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/research/design_20261029_custom_axis/DESIGN.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "0DTE custom-axis pipeline design",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/research/design_20261029_v088/DESIGN.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Version 0.8.8 — 0DTE custom-axis pipeline",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/research/design_20261030_v089/DESIGN.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "0.8.9 — causal custom-axis design correction",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/research/design_20261030_v089/IMPLEMENTATION.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Implementation follow-through — 2026-10-30",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/research/design_20261030_v089/REVIEW_V088.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Review of 0.8.8",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/research/design_20261030_v089/TEST_PLAN.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "0.8.9 test and release plan",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/research/design_20261030_v090/DESIGN.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Design 0.9.0 — tested custom-axis research pipeline",
+      "local_links": 7,
+      "workstation_local_references": 0,
+      "unavailable_links": [
+        "../../results/custom_axis_v090_20261030/RESULTS.md",
+        "../../results/custom_axis_v090_20261030/acceptance_matrix.json",
+        "../../results/custom_axis_v090_20261030/comparison_registration.json",
+        "../../results/custom_axis_v090_20261030/v089_adversarial.txt"
+      ]
+    },
+    {
+      "path": "strategies/sstrangle/research/design_20261030_v090/QC_ADAPTER_FIX_20261105.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "0.9.0 QC observer clock correction — 2026-11-05",
+      "local_links": 3,
+      "workstation_local_references": 0,
+      "unavailable_links": [
+        "../../results/fix_v090_20261105/RESULTS.md",
+        "../../results/margin_verified_v090_20261105/RESULTS.md",
+        "../../results/validation_v090_20261105/RESULTS.md"
+      ]
+    },
+    {
+      "path": "strategies/sstrangle/research/design_20261107_v091/DESIGN.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "0.9.1 bounded native margin investigation",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/research/design_20261107_v092/DESIGN.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "0.9.2 design and pre-implementation self-review",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    },
+    {
+      "path": "strategies/sstrangle/research/param_audit_20261025/README.md",
+      "role": "retained-history-reference-or-evidence",
+      "title": "Parameter audit 2026-10-25",
+      "local_links": 0,
+      "workstation_local_references": 0,
+      "unavailable_links": []
+    }
+  ],
+  "native_scope": {
+    "documents": 344,
+    "by_area": {
+      "CHANGELOG.md": 1,
+      "PUBLICATION.md": 1,
+      "README.md": 1,
+      "USAGE.md": 1,
+      "docs": 48,
+      "strategies": 292
+    },
+    "exclusions": "Runtime data, .local, environments, target, tools/vendor, workspaces and independent nested Git repositories. Native historical results are counted but not republished or economically revalidated.",
+    "canonical_comparison": {
+      "PUBLICATION.md": "same",
+      "README.md": "same",
+      "USAGE.md": "same",
+      "docs/ARCHITECTURE.md": "same",
+      "docs/CI_CD.md": "same",
+      "docs/CONFIGURATION.md": "same",
+      "docs/DOCUMENTATION_AUDIT.md": "same",
+      "docs/ENVIRONMENT.md": "same",
+      "docs/OPERATIONS.md": "same",
+      "docs/README.md": "same",
+      "strategies/sstrangle/poc/v091/README.md": "same",
+      "strategies/sstrangle/poc/v092/README.md": "same"
+    }
+  }
+}

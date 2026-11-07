@@ -1,3 +1,5 @@
+> Documentation scope correction (2026-11-07): the May 10 workflow below is a dated research protocol, not standing authorization to queue new 128-spec rounds. Current workspace setup, isolated unit tests, credentials and operational boundaries are in [CI](../../docs/CI_CD.md) and [operations](../../docs/OPERATIONS.md). Historical bakes/guard thresholds require their original research state; the documentation audit does not revalidate their economics.
+
 # S001 — 128-Spec Meaningful-Backtest Workflow (Reconstructed 2026-05-10)
 
 User hard constraint (repeated 15+ times): **every /loop tick must queue 128 ±10 meaningful specs. No padding. No waste.**

@@ -1,3 +1,5 @@
+> Reviewed navigation (2026-11-07): use [workspace configuration](../../docs/CONFIGURATION.md), [offline tests](../../docs/CI_CD.md) and [recovery](../../docs/OPERATIONS.md). Dry-run/render/queue commands have different effects; documentation inspection alone does not authorize experiments.
+
 # S002 ETF research
 
 Independent strategy source and mutation tools. Shared execution is provided by

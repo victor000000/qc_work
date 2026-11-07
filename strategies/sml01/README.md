@@ -1,3 +1,5 @@
+> Current documentation boundary (2026-11-07): this is the workspace-imported SML01 package, distinct from the independently versioned quant-autoresearch repository. [Workspace setup and isolated tests](../../docs/CI_CD.md) are current; program/analysis records below retain their dated scoring gates and findings. Omitted private models/data cannot be reconstructed from historical champion scores. Round/research scripts can contact QC and mutate state; do not use them or their help paths as smoke tests without source inspection. Historical ObjectStore reset evidence is not a present cleanup instruction or current model-availability check.
+
 # Quant Autoresearch Workspace
 
 An autonomous ML quant-research loop (inspired by [karpathy/autoresearch](https://github.com/karpathy/autoresearch))
