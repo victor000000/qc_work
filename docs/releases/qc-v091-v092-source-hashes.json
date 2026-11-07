@@ -1,0 +1,22 @@
+{
+  "source_root": "/home/vic/qc_work",
+  "files": {
+    "strategies/sstrangle/poc/v091/example_plan.json": "b56e1c7e9575d48baf29f97ae56f74f7618062967efd2b090534a003fcf8766a",
+    "strategies/sstrangle/poc/v091/__init__.py": "0850d1029a25c3872b5794aa129984f3c621f8988cc2f5565ad1cd326d62308e",
+    "strategies/sstrangle/poc/v091/probe.py": "29df66f56792b7b2de7299f9831583762251843ebdc37cf5d2f6855159684c34",
+    "strategies/sstrangle/poc/v091/test_probe.py": "aeddd2a027249dd7adac5ed403c4f5408f1a7129b47d475623546b3c4d8b532e",
+    "strategies/sstrangle/poc/v091/margin_diagnostic.py": "7ebbc4dad67acba5d383cb27d6557d27d7142f9ce09c00c93b0f536b5498fde9",
+    "strategies/sstrangle/poc/v091/build_probe.py": "aebee70d0221b208a372f1f9e359792d9e0994ae9a3115729b74f7ce08bc1a43",
+    "strategies/sstrangle/poc/v091/README.md": "66450baca5075715de4854b721f53de171af75cf5ae42588fe7c2090d15f7b6f",
+    "strategies/sstrangle/research/design_20261107_v091/DESIGN.md": "6e1e93fc212e17cda44b7fd0bbeb76380a0a690c8b381628ab6d818f90d5b6ed",
+    "strategies/sstrangle/poc/v092/example_plan.json": "b56e1c7e9575d48baf29f97ae56f74f7618062967efd2b090534a003fcf8766a",
+    "strategies/sstrangle/poc/v092/__init__.py": "99a5cc97c1e01a985c6fae929d2956b347f1d3f4ac4cec5984ab2b5aea73003f",
+    "strategies/sstrangle/poc/v092/test_review.py": "626138bed720b197ac11cbb2da44b31d4e1d81575dc90eace544bafcd429aa67",
+    "strategies/sstrangle/poc/v092/probe.py": "d76450d672b32bb80adf2f733f2789ff1fac572b13d2274c7aaf8a3c802b63ef",
+    "strategies/sstrangle/poc/v092/margin_diagnostic.py": "66075c4f376d04067898d1e1c1729bcf90161576f171cf7fe5337a24c94a2702",
+    "strategies/sstrangle/poc/v092/build_probe.py": "29f1c220d6357b14ad015bef50de7254c2543da666707ad75529059adde7a3c1",
+    "strategies/sstrangle/poc/v092/receipt.py": "848cbeda2fd86eafed1ee729525b2cc31bf3700c99f850bd9b896374cdb24c73",
+    "strategies/sstrangle/poc/v092/README.md": "1712bc164085d4b9e42c514ff9290519e150dc3d643fb54e7e69283b8ef92411",
+    "strategies/sstrangle/research/design_20261107_v092/DESIGN.md": "fa37d3c8ebd242699fde26cba0367de9a671303dcea80c277af06b8795f2c16d"
+  }
+}

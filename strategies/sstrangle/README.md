@@ -1,3 +1,5 @@
+> 2026-11-07: 0.9.1/0.9.2 diagnostic design, self-review and implementation: [release evidence](../../docs/releases/qc-v092-review.md). Cloud and economic acceptance remain open.
+
 > Latest 0.9.0 validation (2026-11-05): [C0 margin and IV evidence](results/margin_verified_v090_20261105/RESULTS.md). 427 tests passed. Cloud-tested diagnostic/API and publication-race fixes preserve exact native account parity. C0 still fails on margin; IV replay passes but historical root cause remains open. Pre-trigger margin state, full sidecar/feature parity, strict provider inputs and economic acceptance remain gaps.
 
 > Latest validation: [warmed C1/P1 parity confirmed](results/warmed_v090_20261105/RESULTS.md). 422 tests; 31 complete sessions and ready-axis evaluations for C1/P1. C0 margin failure and unresolved IV/sidecar/provider gates are retained.

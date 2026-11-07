@@ -1,0 +1,6 @@
+[
+  {"prefix":"M0","phase":"on_data","start":"2022-11-15T13:39:00","end":"2022-11-15T13:39:59"},
+  {"prefix":"M1","phase":"on_data","start":"2022-11-15T13:40:00","end":"2022-11-15T13:40:59"},
+  {"prefix":"ME","phase":"on_order_event","start":"2022-11-15T13:40:00","end":"2022-11-15T13:42:00"},
+  {"prefix":"MC","phase":"on_margin_call","start":"2022-11-15T13:40:00","end":"2022-11-15T13:42:00"}
+]

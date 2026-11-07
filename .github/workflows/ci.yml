@@ -43,7 +43,7 @@ jobs:
       - run: python -m pip install --no-deps -e .
       - name: Run custom-axis and design regressions
         if: matrix.strategy == 'sstrangle'
-        run: python -m pytest strategies/sstrangle/poc/v088 strategies/sstrangle/poc/v089 strategies/sstrangle/poc/v090 strategies/sstrangle/research/design_20261030_v090
+        run: python -m pytest strategies/sstrangle/poc/v088 strategies/sstrangle/poc/v089 strategies/sstrangle/poc/v090 strategies/sstrangle/poc/v091 strategies/sstrangle/poc/v092 strategies/sstrangle/research/design_20261030_v090
       - name: Run isolated strategy tests
         working-directory: strategies/${{ matrix.strategy }}
         run: python -m pytest tests
@@ -58,6 +58,15 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r requirements-dev.lock
       - run: python -m pip install --no-deps -e .
+      - uses: Swatinem/rust-cache@v2
+      - name: Build native writer for cross-language storage regression
+        run: cargo build --locked --bin qc-backtest-server
+      - name: Locate downloaded DuckDB runtime
+        shell: bash
+        run: |
+          duckdb_lib=$(find target -name libduckdb.so -print -quit)
+          test -n "$duckdb_lib"
+          echo "LD_LIBRARY_PATH=$(dirname "$PWD/$duckdb_lib")" >> "$GITHUB_ENV"
       - run: python -m pytest tests
 
   audit:

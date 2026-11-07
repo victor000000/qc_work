@@ -1,0 +1,36 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.14, pytest-9.1.1, pluggy-1.7.0
+rootdir: /home/vic/qc_work/.local/github-publication-20261105/source/strategies/s001
+configfile: pytest.ini
+plugins: anyio-4.15.1
+collected 244 items
+
+tests/test_catalogue_universe.py .....                                   [  2%]
+tests/test_emit_probes.py ........                                       [  5%]
+tests/test_fundamental_probes.py ....................................... [ 21%]
+........................................................................ [ 50%]
+........................................................................ [ 80%]
+                                                                         [ 80%]
+tests/test_fundamental_retirement.py ......                              [ 82%]
+tests/test_migrate_schema.py ........                                    [ 86%]
+tests/test_parse_scan_log.py ....                                        [ 87%]
+tests/test_scan_spec.py ....                                             [ 89%]
+tests/test_score_probes.py ..............                                [ 95%]
+tests/test_smoke.py ..........                                           [ 99%]
+tests/test_workspace_paths.py ..                                         [100%]
+
+=============================== warnings summary ===============================
+tests/test_emit_probes.py::test_emit_includes_phase2_sweep_when_eligible
+  /home/vic/qc_work/.local/github-publication-20261105/source/strategies/s001/tests/test_emit_probes.py:93: DeprecationWarning: k_sweep_fields is deprecated; use k_coarse_fields instead.
+    specs = emit_probes_for_db(db_path=tmp_db, round_n=2,
+
+tests/test_emit_probes.py::test_emit_marks_sweep_phase_after_emission
+  /home/vic/qc_work/.local/github-publication-20261105/source/strategies/s001/tests/test_emit_probes.py:130: DeprecationWarning: k_sweep_fields is deprecated; use k_coarse_fields instead.
+    emit_probes_for_db(db_path=tmp_db, round_n=2,
+
+tests/test_emit_probes.py::test_emit_combines_phase1_and_phase2
+  /home/vic/qc_work/.local/github-publication-20261105/source/strategies/s001/tests/test_emit_probes.py:176: DeprecationWarning: k_sweep_fields is deprecated; use k_coarse_fields instead.
+    specs = emit_probes_for_db(db_path=tmp_db, round_n=3,
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================== 244 passed, 3 warnings in 85.12s (0:01:25) ==================

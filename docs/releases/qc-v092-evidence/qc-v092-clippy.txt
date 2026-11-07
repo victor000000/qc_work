@@ -1,0 +1,4 @@
+   Compiling libduckdb-sys v1.10506.1
+   Compiling qc-backtest-server v1.2.0 (/home/vic/qc_work/.local/github-publication-20261105/source/crates/qc-server)
+    Checking duckdb v1.10506.1
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.63s

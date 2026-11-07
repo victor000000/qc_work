@@ -1,3 +1,5 @@
+> 2026-11-07: 0.9.1/0.9.2 diagnostic design, self-review and implementation: [release evidence](releases/qc-v092-review.md). Cloud and economic acceptance remain open.
+
 > Latest 0.9.0 validation (2026-11-05): [C0 margin and IV evidence](../strategies/sstrangle/results/margin_verified_v090_20261105/RESULTS.md). 427 tests passed. Cloud-tested diagnostic/API and publication-race fixes preserve exact native account parity. C0 still fails on margin; IV replay passes but historical root cause remains open. Pre-trigger margin state, full sidecar/feature parity, strict provider inputs and economic acceptance remain gaps.
 
 > Updated 2026-11-05: [0.9.0 clock fix confirmed](../strategies/sstrangle/results/fix_v090_20261105/RESULTS.md). 421 tests passed; four fresh QC runs confirm 390/390 regular and 210/210 early-close coverage, valid finalization, exact orders/cash/equity parity. Independent sidecar readback, warmed-axis/C1/P1 validation, strict provider inputs and native IV robustness remain open.
