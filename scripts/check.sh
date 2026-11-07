@@ -2,6 +2,7 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 cargo fmt --all -- --check
+bash scripts/bootstrap_duckdb.sh
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --all-targets --locked
 cargo build --workspace --locked
