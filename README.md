@@ -2,7 +2,7 @@
 
 A shared Rust executor schedules QuantConnect backtests from independent Python strategy projects. Each strategy has its own DuckDB queue and results. Cloud projects are mutable execution workspaces; the executor reconciles source files before creating each backtest and retains its immutable remote identity for collection/recovery.
 
-Current implementation: executor **1.2.0**, custom-axis feature engine **0.9.0**, and bounded diagnostic tooling **0.9.2**. These are separate version sequences. Diagnostics improve evidence collection; they do not establish margin/IV root causes or economic acceptance.
+Current implementation: executor **1.2.1**, custom-axis feature engine **0.9.0**, and bounded diagnostic tooling **0.9.2**. These are separate version sequences. Diagnostics improve evidence collection; they do not establish margin/IV root causes or economic acceptance.
 
 ## Start here
 

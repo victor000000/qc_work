@@ -8,6 +8,7 @@ use std::time::Instant;
 
 use anyhow::Result;
 
+use crate::api::backtests::BacktestIdentityMismatch;
 use crate::client::{QcClient, is_transient_error};
 use crate::models::backtest::BacktestResponse;
 use crate::rate_limit::is_rate_limit;
@@ -48,10 +49,9 @@ pub(super) async fn poll_read_once(
             );
             Ok(None)
         }
-        Err(e) if is_transient_error(&e) => {
-            // The per-request retry budget may expire during an outage while
-            // the cloud algorithm keeps running. Keep this poll task/identity
-            // alive; poll_backtest_unlocked still enforces its original budget.
+        Err(e) if e.is::<BacktestIdentityMismatch>() || is_transient_error(&e) => {
+            // An outage or a response for another execution says nothing about
+            // the owned job. Retry reading that job under the original deadline.
             *backoff_factor = backoff_factor.saturating_mul(2).min(16);
             tracing::warn!(
                 target: "qc::pipeline",

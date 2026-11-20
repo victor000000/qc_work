@@ -1,6 +1,6 @@
 # Documentation guide
 
-Reviewed against source on 2026-11-07. Executor 1.2.0, feature engine 0.9.0 and diagnostic tooling 0.9.2 have independent version identities.
+Executor 1.2.1, feature engine 0.9.0 and diagnostic tooling 0.9.2 have independent version identities.
 
 | Task | Canonical reference |
 |---|---|

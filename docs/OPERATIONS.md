@@ -23,7 +23,7 @@ flowchart TD
   D -->|Valid complete result| G[Atomic metrics and queue completion]
 ```
 
-A reported native runtime error marks the queue row failed; a confirmed missing remote record can be requeued. A failed read is not a failed backtest. Preserve remote identity and publication evidence before diagnosing retries. Ambiguous create responses are not blindly replayed. Retry resets old execution/result fields while retaining requested project pins; it is a new execution, not a continuation of old evidence.
+A reported native runtime error marks the queue row failed; a confirmed missing remote record can be requeued. A failed read leaves the backtest state unknown. If a full read reports a different project or backtest ID, active polling continues against the recorded execution within its original deadline. Startup recovery preserves the record and stops that recovery attempt. Preserve remote identity and publication evidence before diagnosing retries. Ambiguous create responses are not blindly replayed. Retry resets old execution/result fields while retaining requested project pins; it is a new execution, not a continuation of old evidence.
 
 SIGINT/SIGTERM stop acquisition, allow up to 30 seconds for preparation and two minutes for collection, and leave unfinished work recoverable. Confirm terminal cloud state before any deliberate lifecycle changes. The source/test contracts are described in [architecture](ARCHITECTURE.md).
 

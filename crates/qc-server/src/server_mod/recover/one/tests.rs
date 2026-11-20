@@ -12,30 +12,32 @@ async fn fixture() -> (tempfile::TempDir, Db) {
 }
 
 #[tokio::test]
-async fn rejected_cloud_read_preserves_running_identity() {
-    let (_temp, db) = fixture().await;
-    let (client, server) = crate::client::test_support::mock_api(vec![(
-        "/backtests/read",
+async fn unusable_cloud_reads_preserve_running_identity() {
+    for body in [
         r#"{"success":false,"errors":["permission denied"]}"#,
-    )])
-    .await;
-    assert!(
-        recover_one_job(&client, &db, 1, "job".into(), Some("bid".into()), Some(42))
+        r#"{"success":true,"backtest":{"backtestId":"other","completed":true,"error":"unexpected-runtime-error"}}"#,
+    ] {
+        let (_temp, db) = fixture().await;
+        let (client, server) =
+            crate::client::test_support::mock_api(vec![("/backtests/read", body)]).await;
+        assert!(
+            recover_one_job(&client, &db, 1, "job".into(), Some("bid".into()), Some(42))
+                .await
+                .is_err()
+        );
+        server.await.unwrap();
+        let row: (String, String) = db
+            .call(|conn| {
+                Ok(
+                    conn.query_row("SELECT status,backtest_id FROM backtest_queue", [], |r| {
+                        Ok((r.get(0)?, r.get(1)?))
+                    })?,
+                )
+            })
             .await
-            .is_err()
-    );
-    server.await.unwrap();
-    let row: (String, String) = db
-        .call(|conn| {
-            Ok(
-                conn.query_row("SELECT status,backtest_id FROM backtest_queue", [], |r| {
-                    Ok((r.get(0)?, r.get(1)?))
-                })?,
-            )
-        })
-        .await
-        .unwrap();
-    assert_eq!(row, ("running".into(), "bid".into()));
+            .unwrap();
+        assert_eq!(row, ("running".into(), "bid".into()));
+    }
 }
 
 #[tokio::test]

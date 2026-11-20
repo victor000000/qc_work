@@ -156,6 +156,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mismatched_completed_payloads_do_not_finish_the_owned_execution() {
+        let (client, server) = mock_api_status(vec![
+            (
+                "/backtests/read",
+                200,
+                r#"{"success":true,"backtest":{"projectId":42,"backtestId":"other","completed":true}}"#,
+            ),
+            (
+                "/backtests/read",
+                200,
+                r#"{"success":true,"backtest":{"projectId":43,"backtestId":"owned","completed":true}}"#,
+            ),
+            (
+                "/backtests/read",
+                200,
+                r#"{"success":true,"backtest":{"projectId":42,"backtestId":"owned","completed":true}}"#,
+            ),
+        ])
+        .await;
+        let (response, _, polls) = poll_backtest_unlocked(
+            &client,
+            42,
+            "owned",
+            "matching-identity",
+            Duration::from_secs(1),
+            Duration::from_secs(10),
+        )
+        .await
+        .unwrap();
+        let backtest = response.backtest.unwrap();
+        assert_eq!(backtest.project_id, 42);
+        assert_eq!(backtest.backtest_id, "owned");
+        assert_eq!(polls, 3);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn permanent_read_denial_is_not_retried_as_a_network_outage() {
         let (client, server) =
             mock_api_status(vec![("/backtests/read", 401, "unauthorized")]).await;

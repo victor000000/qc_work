@@ -1,6 +1,6 @@
 # Executor configuration
 
-This reference follows `crates/qc-server/src/cli/`, `config_load.rs`, `config_discover.rs`, `config_resolve.rs` and `runner/run_loop/mod.rs`. Values below belong to executor 1.2.0, not every strategy's optional tools.
+This reference follows `crates/qc-server/src/cli/`, `config_load.rs`, `config_discover.rs`, `config_resolve.rs` and `runner/run_loop/mod.rs`. Values below belong to executor 1.2.1, not every strategy's optional tools.
 
 ## Process inputs
 

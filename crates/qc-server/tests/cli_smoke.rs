@@ -20,8 +20,8 @@ fn version_includes_git_sha() {
     let out = run(&["--version"]);
     assert!(out.status.success(), "exit code != 0");
     let stdout = String::from_utf8(out.stdout).unwrap();
-    // Format: `qc-backtest-server 1.2.0 (<sha>)` or `1.2.0 (unknown)`.
-    assert!(stdout.starts_with("qc-backtest-server "), "got: {stdout:?}");
+    let prefix = concat!("qc-backtest-server ", env!("CARGO_PKG_VERSION"), " (");
+    assert!(stdout.starts_with(prefix), "got: {stdout:?}");
     assert!(stdout.contains(" ("), "missing git SHA marker: {stdout:?}");
     assert!(
         stdout.contains(")\n") || stdout.ends_with(")"),

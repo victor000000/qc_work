@@ -6,7 +6,7 @@ Updated 2026-10-31. This is the reusable workspace guide. Verified SSTRANGLE res
 
 ## Current release boundary (reviewed 2026-11-07)
 
-The executor is 1.2.0, the axis engine below is 0.9.0, and the newest diagnostic tool is [0.9.2](../strategies/sstrangle/poc/v092/README.md). Versioned engines and diagnostic modules have different identities; the 0.9.2 release did not rename the feature engine or establish a margin/IV solver fix.
+The executor is 1.2.1, the axis engine below is 0.9.0, and the newest diagnostic tool is [0.9.2](../strategies/sstrangle/poc/v092/README.md). Versioned engines and diagnostic modules have different identities; the 0.9.2 release did not rename the feature engine or establish a margin/IV solver fix.
 
 Use [configuration](CONFIGURATION.md), [environment](ENVIRONMENT.md), [CLI](../USAGE.md), [operations](OPERATIONS.md) and [CI](CI_CD.md) for current setup/operation commands. The detailed contracts and reproduction below retain the v090 research scope. Links to omitted results, adjacent provider paths and `.local` records are operational-only evidence references; public source does not include those datasets. Synthetic fixtures must remain labeled synthetic. A sampled replay never silently satisfies strict historical availability gates.
 

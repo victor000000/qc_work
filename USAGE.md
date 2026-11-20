@@ -1,6 +1,6 @@
 # qc-backtest-server CLI reference
 
-Executor 1.2.0. Use `target/release/qc-backtest-server --help` and `<command> --help` for exact flags. Help/version return before account operations. The following command families exist in `crates/qc-server/src/cli/commands.rs`; legacy `mock-test` and `stress-test` commands are absent.
+Executor 1.2.1. Use `target/release/qc-backtest-server --help` and `<command> --help` for exact flags. Help/version return before account operations. The following command families exist in `crates/qc-server/src/cli/commands.rs`; legacy `mock-test` and `stress-test` commands are absent.
 
 Global `--data-dir <path>` defaults to `QC_DATA_DIR`, then `data`; `--log-dir <path>` defaults to `<data-dir>/logs`. Put global flags before the subcommand. [Configuration](docs/CONFIGURATION.md) owns credential/path defaults; [operations](docs/OPERATIONS.md) owns lifecycle/recovery guidance.
 

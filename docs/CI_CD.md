@@ -11,7 +11,7 @@ bash scripts/check.sh
 
 Setup uses Rust 1.95.0, Python 3.12, `requirements-dev.lock`, and editable installs for workspace storage and S001/S002/SML01. The local check script runs formatting, native DuckDB bootstrap, strict all-feature/all-target Clippy, all-target Rust tests, debug binary build, workspace tests, isolated strategy tests and explicit custom-axis/design tests. `QC_PYTHON` can select an existing compatible Python interpreter; otherwise `.venv/bin/python` is used.
 
-Strategy suites run in their own directories to preserve their import/configuration boundaries. Do not replace this with one combined pytest collection across all strategy roots: same-named modules and strategy-specific configuration can collide. The custom-axis command is separate:
+The executor’s HTTP fixtures include misidentified completed responses and verify that the poller waits for the requested backtest. Strategy suites run in their own directories to preserve their import/configuration boundaries. Do not replace this with one combined pytest collection across all strategy roots: same-named modules and strategy-specific configuration can collide. The custom-axis command is separate:
 
 ```bash
 .venv/bin/python -m pytest strategies/sstrangle/poc/v088 \

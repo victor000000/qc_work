@@ -3,6 +3,11 @@
 Reverse-chronological. Dates in local TZ. `git log` is the authoritative
 source; this file groups the changes that mattered.
 
+## Executor 1.2.1 — 2026-11-21
+
+- Reject a full backtest response that reports a different project or backtest ID. During polling, continue observing the original execution within its deadline. Recovery stops when the identity disagrees.
+- Exercise both kinds of mismatch with mocked HTTP and check that the CLI reports the compiled executor version.
+
 ## Documentation review — 2026-11-07
 
 Current guides now distinguish executor 1.2.0, v090 feature engine and v092 diagnostics; correct authentication, CLI, cache bootstrap and hosted-CI boundaries; and inventory public/native prose. Dated research/release facts below are preserved. See [documentation coverage](docs/DOCUMENTATION_AUDIT.md) for exact verification scope and exclusions. This entry records documentation work, not a new trading/runtime release.
