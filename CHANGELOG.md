@@ -7,6 +7,7 @@ source; this file groups the changes that mattered.
 
 - Reject a full backtest response that reports a different project or backtest ID. During polling, continue observing the original execution within its deadline. Recovery stops when the identity disagrees.
 - Exercise both kinds of mismatch with mocked HTTP and check that the CLI reports the compiled executor version.
+- Lock `quinn-udp` and `zip` to patched versions for the RustSec audit.
 
 ## Documentation review — 2026-11-07
 
